@@ -4,6 +4,7 @@ A powerful, all-in-one financial workstation designed to download historical mar
 
 ## 🚀 What's New in V3 (The Realism Update)?
 - **True Realism Engine**: We've completely overhauled the execution logic to ensure you get production-grade, mathematically realistic backtesting results that you can actually trust.
+  - *Corporate Action Accrual*: Fixed "Lookahead" and "Phantom Cash" bugs. Dividends and Rights Premiums are now strictly calculated based on T-1 holdings and hard-injected directly into the broker's cash balance to properly compound your PnL.
   - *Slippage & Spread Penalty*: Inject simulated market-impact penalties into every trade to kill unrealistic compounding.
   - *Fixed Position Sizing*: Toggle off default "100% Equity Compounding" and define strict per-trade cash allocations (e.g. ₹50,000) to accurately normalize drawdowns.
   - *Bankruptcy Guard*: Built-in engine checks block further trading if account equity drops below zero, ending mathematical illusions.
