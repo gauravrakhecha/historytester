@@ -1,8 +1,20 @@
-# Unified Market Data Downloader & No-Code Backtester (V2)
+# Unified Market Data Downloader & No-Code Backtester (V3)
 
 A powerful, all-in-one financial workstation designed to download historical market data across multiple brokers and run complex algorithmic trading backtests without writing a single line of code.
 
-## 🚀 What's New in V2?
+## 🚀 What's New in V3 (The Realism Update)?
+- **True Realism Engine**: We've completely overhauled the execution logic to ensure you get production-grade, mathematically realistic backtesting results that you can actually trust.
+  - *Slippage & Spread Penalty*: Inject simulated market-impact penalties into every trade to kill unrealistic compounding.
+  - *Fixed Position Sizing*: Toggle off default "100% Equity Compounding" and define strict per-trade cash allocations (e.g. ₹50,000) to accurately normalize drawdowns.
+  - *Bankruptcy Guard*: Built-in engine checks block further trading if account equity drops below zero, ending mathematical illusions.
+- **Institutional-Grade Visualizations**: We have completely stripped out Plotly and integrated the **native interactive Bokeh charting engine**. Your Candlesticks, Equity Curve, Trades, and Indicators (SMA, MACD, etc.) are perfectly synchronized and stacked in a single pan & zoom interface.
+- **Deep Performance Analytics**: 
+  - *Trade Inspector*: Review granular entry/exit prices, durations, and PnL for every single executed trade in a transparent, sortable spreadsheet.
+  - *Year-Wise Breakdown*: Instantly see your strategy's Return and Max Drawdown segmented by calendar year.
+  - *Annualized CAGR & Starting Capital*: Added explicit tracking for annualized returns and initial capital.
+- **Persistent Batch Backtesting**: Folder Batch runs now permanently save their aggregate results directly to your local `backtests.db` SQLite database.
+
+## 🌟 Core Features (V2 Legacy)
 - **Asynchronous Downloading Engine**: Completely overhauled the downloader to use `aiohttp`, delivering lightning-fast, chunked historical data downloads for all supported brokers.
 - **Upstox Corporate Actions Sanitization**: Natively integrates with the Upstox Fundamentals API to guarantee data integrity!
   - *Splits & Bonuses*: Automatically applies structural mathematical multipliers backwards through time, ensuring your historical data never breaks your indicators on ex-dates.
