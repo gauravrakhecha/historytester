@@ -1607,6 +1607,7 @@ else:
         # --- CODE GENERATION ---
         st.subheader("Compile Strategy")
         if st.button("💾 Compile & Save Strategy"):
+            has_zones = len(st.session_state.get('range_zones', [])) > 0
             code = "import pandas_ta as pta\n"
             code += "class VisualStrategy(Strategy):\n"
             
