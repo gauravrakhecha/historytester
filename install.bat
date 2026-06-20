@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 echo ===================================================
 echo   Unified Market Data Downloader - One-Click Installer
 echo ===================================================
