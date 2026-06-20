@@ -1,4 +1,12 @@
 streamlit
 pandas
+numpy
 requests
 python-dotenv
+aiohttp
+backtesting
+ta
+pandas-ta
+bokeh
+plotly
+scipy
