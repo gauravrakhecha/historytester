@@ -175,6 +175,8 @@ if selected_broker == "Upstox":
                 st.sidebar.success("Upstox Authenticated!")
                 st.query_params.clear()
                 st.rerun()
+            else:
+                st.sidebar.error(f"Login Failed! Code: {resp.status_code} \nResponse: {resp.text}")
 
 elif selected_broker == "Zerodha":
     api_key = st.sidebar.text_input("Kite API Key", value=os.getenv("ZERODHA_API_KEY", ""), type="password")
