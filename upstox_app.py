@@ -1183,6 +1183,11 @@ else:
                     value=existing.get("brokerage_commission", "0.0003"),
                     help="Enter as a decimal fraction. E.g., 0.0003 = 0.03% per trade (typical for Indian discount brokers like Zerodha). 0.002 = 0.2%."
                 )
+                slippage = st.text_input(
+                    "Slippage / Spread Penalty (fraction per trade)", 
+                    value=existing.get("slippage", "0.0002"),
+                    help="Enter as a decimal fraction. Adds simulated market impact to every trade. E.g. 0.0002 = 0.02% penalty per trade."
+                )
                 margin = st.text_input("Margin (e.g. 1.0 for no leverage, 0.2 for 5x)", value=existing.get("brokerage_margin", "1.0"))
                 initial_capital = st.text_input("Initial Capital (₹)", value=existing.get("initial_capital", "100000"))
                 st.markdown("""
@@ -1203,7 +1208,13 @@ else:
                 os.makedirs(plot_dir, exist_ok=True)
                 conn = sqlite3.connect(DB_FILE)
                 c = conn.cursor()
-                settings = {"brokerage_commission": commission, "brokerage_margin": margin, "plot_dir": plot_dir, "initial_capital": initial_capital}
+                settings = {
+                    "brokerage_commission": commission, 
+                    "slippage": slippage, 
+                    "brokerage_margin": margin, 
+                    "plot_dir": plot_dir, 
+                    "initial_capital": initial_capital
+                }
                 for k, v in settings.items():
                     c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (k, str(v)))
                 conn.commit()
@@ -1577,6 +1588,19 @@ else:
         # --- STEP 3: RISK MANAGEMENT ---
         st.subheader("Step 3: Risk Management (Optional)")
         
+        # Position Sizing
+        pos_size_type = st.radio("Position Sizing", [
+            "Compound 100% Equity (Default)",
+            "Fixed Value per Trade (₹)"
+        ], horizontal=True, help="100% Equity compounds your entire capital on every trade. This leads to massive commissions and drawdowns on intraday data. Use Fixed Value for realistic results.")
+        
+        fixed_pos_value = 0.0
+        if pos_size_type == "Fixed Value per Trade (₹)":
+            fixed_pos_value = st.number_input("Amount per Trade (₹)", value=st.session_state.get('fixed_pos_value', 50000.0), min_value=100.0, step=1000.0)
+            
+        st.session_state['pos_size_type'] = pos_size_type
+        st.session_state['fixed_pos_value'] = fixed_pos_value
+
         rm_mode = st.radio("Exit / Risk Management Mode", [
             "None (Use Sell Rules Only)",
             "Static % Stop Loss / Take Profit",
@@ -1834,6 +1858,8 @@ else:
             
             # --- ENTRY LOGIC ---
             code += "        if not self.position:\n"
+            code += "            if self.equity <= 0:\n"
+            code += "                return  # Bankrupt\n"
             if st.session_state['buy_rules']:
                 if has_regime:
                     code += "            if _no_trade_zone:\n"
@@ -1842,6 +1868,16 @@ else:
                     code += "            if _zone_block_entry:\n"
                     code += "                return  # Blocked by Range Zone\n"
                 code += f"            if {buy_cond}:\n"
+                
+                # Position Sizing Logic
+                pos_size_type = st.session_state.get('pos_size_type', "Compound 100% Equity (Default)")
+                fixed_pos_value = st.session_state.get('fixed_pos_value', 50000.0)
+                if pos_size_type == "Fixed Value per Trade (₹)":
+                    code += f"                _trade_size = max(1, int({fixed_pos_value} // self.data.Close[-1]))\n"
+                    size_arg = "size=_trade_size"
+                else:
+                    size_arg = "size=0.999"
+
                 if rm_mode == "Static % Stop Loss / Take Profit" and (sl_pct > 0 or tp_pct > 0):
                     if sl_pct > 0:
                         code += f"                sl = self.data.Close[-1] * (1 - {sl_pct / 100})\n"
@@ -1851,11 +1887,9 @@ else:
                         code += f"                tp = self.data.Close[-1] * (1 + {tp_pct / 100})\n"
                     else:
                         code += f"                tp = None\n"
-                    code += f"                self.buy(sl=sl, tp=tp)\n"
-                elif rm_mode == "Trailing Stop Loss (%)":
-                    code += f"                self.buy()\n"
+                    code += f"                self.buy({size_arg}, sl=sl, tp=tp)\n"
                 else:
-                    code += f"                self.buy()\n"
+                    code += f"                self.buy({size_arg})\n"
                 
                 if rm_mode == "Trailing Stop Loss (%)" or has_zones:
                     code += f"                self._highest_since_entry = self.data.Close[-1]\n"
@@ -2023,53 +2057,27 @@ else:
                                     use_container_width=True
                                 )
                                 
-                                # Plotly chart with indicators overlaid
-                                st.subheader("Signal Visualization")
-                                import plotly.graph_objects as go
-                                from plotly.subplots import make_subplots
+                                # Native Bokeh chart for Signal Inspector
+                                st.subheader("Signal Visualization (Bokeh)")
+                                import streamlit.components.v1 as components
+                                import time
                                 
-                                # Determine which indicators are overlays (price-scale) vs oscillators
-                                overlay_inds = []
-                                oscillator_inds = []
-                                for x in st.session_state.get('indicators', []):
-                                    if x['type'] in ["RSI", "MACD", "Linear Regression Slope", "R-Squared", "ATR-Normalized Angle"]:
-                                        if x['type'] == "MACD":
-                                            oscillator_inds.extend([f"{x['name']}_line", f"{x['name']}_signal"])
-                                        else:
-                                            oscillator_inds.append(x['name'])
-                                    else:
-                                        if x['type'] == "Bollinger Bands":
-                                            overlay_inds.extend([f"{x['name']}_high", f"{x['name']}_low"])
-                                        else:
-                                            overlay_inds.append(x['name'])
+                                conn = sqlite3.connect(DB_FILE)
+                                c = conn.cursor()
+                                c.execute("SELECT value FROM settings WHERE key='plot_dir'")
+                                res = c.fetchone()
+                                plot_dir = res[0] if res else "./plots"
+                                conn.close()
+                                os.makedirs(plot_dir, exist_ok=True)
                                 
-                                n_osc = 1 if oscillator_inds else 0
-                                heights = [0.6, 0.4] if n_osc else [1.0]
-                                fig = make_subplots(rows=1 + n_osc, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=heights)
-                                
-                                fig.add_trace(go.Candlestick(x=out_df.index, open=out_df['Open'], high=out_df['High'], low=out_df['Low'], close=out_df['Close'], name='Price'), row=1, col=1)
-                                
-                                colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F']
-                                for i, ind_name in enumerate(overlay_inds):
-                                    if ind_name in out_df.columns:
-                                        fig.add_trace(go.Scatter(x=out_df.index, y=out_df[ind_name], mode='lines', name=ind_name, line=dict(color=colors[i % len(colors)], width=1.5)), row=1, col=1)
-                                
-                                # Buy/Sell markers
-                                buy_mask = out_df['Buy_Signal'] == 1
-                                sell_mask = out_df['Sell_Signal'] == 1
-                                if buy_mask.any():
-                                    fig.add_trace(go.Scatter(x=out_df.index[buy_mask], y=out_df['Low'][buy_mask] * 0.998, mode='markers', marker=dict(symbol='triangle-up', color='#00FF7F', size=14, line=dict(width=1, color='black')), name='BUY'), row=1, col=1)
-                                if sell_mask.any():
-                                    fig.add_trace(go.Scatter(x=out_df.index[sell_mask], y=out_df['High'][sell_mask] * 1.002, mode='markers', marker=dict(symbol='triangle-down', color='#FF4500', size=14, line=dict(width=1, color='black')), name='SELL'), row=1, col=1)
-                                
-                                # Oscillators
-                                if n_osc:
-                                    for i, ind_name in enumerate(oscillator_inds):
-                                        if ind_name in out_df.columns:
-                                            fig.add_trace(go.Scatter(x=out_df.index, y=out_df[ind_name], mode='lines', name=ind_name, line=dict(color=colors[(i + len(overlay_inds)) % len(colors)], width=1.5)), row=2, col=1)
-                                
-                                fig.update_layout(height=700, template="plotly_dark", xaxis_rangeslider_visible=False, showlegend=True)
-                                st.plotly_chart(fig, use_container_width=True)
+                                plot_filename = os.path.join(plot_dir, f"signal_plot_{int(time.time())}.html")
+                                try:
+                                    bt.plot(filename=plot_filename, open_browser=False, resample=False)
+                                    with open(plot_filename, 'r', encoding='utf-8') as f:
+                                        html_data = f.read()
+                                    components.html(html_data, height=850, scrolling=True)
+                                except Exception as plot_e:
+                                    st.warning(f"Could not generate interactive chart: {plot_e}")
                                 
                         except Exception as e:
                             st.error(f"Error generating signal sheet: {e}")
@@ -2187,12 +2195,15 @@ else:
                                         conn.close()
                                         
                                         comm = float(stng.get("brokerage_commission", 0.0003))
+                                        slippage = float(stng.get("slippage", 0.0002))
+                                        total_comm = comm + slippage
+                                        
                                         marg = float(stng.get("brokerage_margin", 1.0))
                                         init_cash = float(stng.get("initial_capital", 100000))
                                         plot_dir = stng.get("plot_dir", "./plots")
                                         os.makedirs(plot_dir, exist_ok=True)
                                         
-                                        bt = Backtest(df, strategy_class, cash=init_cash, commission=comm, margin=marg, finalize_trades=True)
+                                        bt = Backtest(df, strategy_class, cash=init_cash, commission=total_comm, margin=marg, finalize_trades=True)
                                         
                                         if enable_optimizer and opt_kwargs_dynamic:
                                             stats = bt.optimize(maximize=opt_maximize, **opt_kwargs_dynamic)
@@ -2200,8 +2211,25 @@ else:
                                             stats = bt.run()
                                         
                                         st.subheader("Performance Metrics")
+                                        
+                                        # Manually calculate Ann Return if missing
+                                        if 'Return (Ann.) [%]' not in stats or pd.isna(stats['Return (Ann.) [%]']):
+                                            duration_days = (stats['End'] - stats['Start']).days
+                                            if duration_days > 0:
+                                                ann_ret = ((stats['Return [%]'] / 100 + 1) ** (365.25 / duration_days) - 1) * 100
+                                                stats['Return (Ann.) [%]'] = ann_ret
+                                        
                                         clean_stats = stats.drop(['_strategy', '_equity_curve', '_trades'], errors='ignore')
                                         strat_instance = stats['_strategy']
+                                        
+                                        # Format dates to ensure they display properly
+                                        if 'Start' in clean_stats:
+                                            clean_stats['Start'] = str(clean_stats['Start'])
+                                        if 'End' in clean_stats:
+                                            clean_stats['End'] = str(clean_stats['End'])
+                                            
+                                        clean_stats['Initial Capital [₹]'] = init_cash
+                                            
                                         if hasattr(strat_instance, 'dividends_earned'):
                                             clean_stats['Dividends Earned [$]'] = strat_instance.dividends_earned
                                         if hasattr(strat_instance, 'rights_premium_earned'):
@@ -2212,6 +2240,27 @@ else:
                                         clean_stats.index = [idx.replace('[$]', '[₹]') for idx in clean_stats.index]
                                         stats_df = pd.DataFrame(clean_stats, columns=["Value"])
                                         st.dataframe(stats_df, use_container_width=True)
+                                        
+                                        # YEARLY PERFORMANCE
+                                        st.subheader("Year-wise Performance")
+                                        try:
+                                            equity_curve = stats['_equity_curve']
+                                            yearly_perf = []
+                                            for year, group in equity_curve.groupby(equity_curve.index.year):
+                                                start_eq = group['Equity'].iloc[0]
+                                                end_eq = group['Equity'].iloc[-1]
+                                                ret = ((end_eq / start_eq) - 1) * 100
+                                                mdd = group['DrawdownPct'].max() * 100
+                                                yearly_perf.append({
+                                                    'Year': str(year), 
+                                                    'Return [%]': round(ret, 2), 
+                                                    'Max Drawdown [%]': round(mdd, 2)
+                                                })
+                                            if yearly_perf:
+                                                yearly_df = pd.DataFrame(yearly_perf).set_index('Year')
+                                                st.dataframe(yearly_df, use_container_width=True)
+                                        except Exception as e:
+                                            st.write(f"Could not calculate yearly performance: {e}")
                                         
                                         st.subheader("Detailed Trade Log (with Indicator Snapshots)")
                                         trades = stats['_trades'].copy()
@@ -2243,33 +2292,22 @@ else:
                                             )
                                         else:
                                             st.info("No trades executed.")
+                                        # Native Bokeh Interactive Chart
+                                        st.subheader("Interactive Strategy Chart")
+                                        import streamlit.components.v1 as components
                                         
-                                        # Plotly Integration
-                                        st.subheader("Interactive Plotly Chart")
-                                        import plotly.graph_objects as go
-                                        from plotly.subplots import make_subplots
-                                        
-                                        trades = stats['_trades']
-                                        equity = stats['_equity_curve']['Equity']
-                                        
-                                        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3])
-                                        
-                                        # Candlesticks
-                                        fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='Price'), row=1, col=1)
-                                        
-                                        # Trades overlay
-                                        if not trades.empty:
-                                            buys = trades[trades['Size'] > 0]
-                                            sells = trades[trades['Size'] < 0]
+                                        plot_filename = os.path.join(plot_dir, f"plot_{int(time.time())}.html")
+                                        try:
+                                            # Using backtesting.py's native Bokeh plotting
+                                            # resample=False ensures all candles are plotted without downsampling (crucial for intraday realism)
+                                            bt.plot(filename=plot_filename, open_browser=False, resample=False)
+                                            with open(plot_filename, 'r', encoding='utf-8') as f:
+                                                html_data = f.read()
                                             
-                                            fig.add_trace(go.Scatter(x=buys['EntryTime'], y=buys['EntryPrice'], mode='markers', marker=dict(symbol='triangle-up', color='green', size=12), name='Buy'), row=1, col=1)
-                                            fig.add_trace(go.Scatter(x=trades['ExitTime'], y=trades['ExitPrice'], mode='markers', marker=dict(symbol='triangle-down', color='red', size=12), name='Sell/Exit'), row=1, col=1)
-                                        
-                                        # Equity Curve
-                                        fig.add_trace(go.Scatter(x=equity.index, y=equity, mode='lines', line=dict(color='blue'), name='Equity'), row=2, col=1)
-                                        
-                                        fig.update_layout(height=800, template="plotly_dark", xaxis_rangeslider_visible=False)
-                                        st.plotly_chart(fig, use_container_width=True)
+                                            # Render HTML inside Streamlit iframe
+                                            components.html(html_data, height=850, scrolling=True)
+                                        except Exception as plot_e:
+                                            st.warning(f"Could not generate interactive chart: {plot_e}")
                                         
                                         # Save to DB
                                         strat_label = st.session_state.get('strategy_label', 'Custom')
@@ -2347,6 +2385,8 @@ else:
                             conn.close()
                             
                             comm = float(stng.get("brokerage_commission", 0.0003))
+                            slippage = float(stng.get("slippage", 0.0002))
+                            comm = comm + slippage
                             marg = float(stng.get("brokerage_margin", 1.0))
                             init_cash = float(stng.get("initial_capital", 100000))
                             
@@ -2387,9 +2427,17 @@ else:
                                             divs = getattr(strat_instance, 'dividends_earned', 0.0) if strat_instance else 0.0
                                             rights_prem = getattr(strat_instance, 'rights_premium_earned', 0.0) if strat_instance else 0.0
                                             
+                                            if 'Return (Ann.) [%]' not in stats or pd.isna(stats['Return (Ann.) [%]']):
+                                                duration_days = (stats['End'] - stats['Start']).days if ('End' in stats and 'Start' in stats) else 0
+                                                if duration_days > 0:
+                                                    ann_ret = ((stats['Return [%]'] / 100 + 1) ** (365.25 / duration_days) - 1) * 100
+                                                    stats['Return (Ann.) [%]'] = ann_ret
+                                                    
                                             res = {
                                                 'File': os.path.basename(file_path),
+                                                'Initial Capital [₹]': init_cash,
                                                 'Return [%]': safe_stat('Return [%]'),
+                                                'Return (Ann.) [%]': safe_stat('Return (Ann.) [%]'),
                                                 'Max. Drawdown [%]': safe_stat('Max. Drawdown [%]'),
                                                 'Win Rate [%]': safe_stat('Win Rate [%]'),
                                                 'Total Trades': int(safe_stat('# Trades')),
@@ -2416,6 +2464,21 @@ else:
                                         batch_df = pd.concat([batch_df, summary], ignore_index=True)
                                         
                                         st.dataframe(batch_df, use_container_width=True)
+                                        
+                                        # Save Batch to DB
+                                        strat_label = st.session_state.get('strategy_label', 'Batch Custom')
+                                        strat_config_json = json.dumps({'indicators': st.session_state.get('indicators', [])})
+                                        conn = sqlite3.connect(DB_FILE)
+                                        c = conn.cursor()
+                                        for res in batch_results:
+                                            c.execute('''INSERT INTO backtests 
+                                                (strategy_name, symbol, timeframe, start_date, end_date, parameters, return_pct, max_drawdown_pct, win_rate_pct, num_trades, sharpe_ratio, plot_file, full_stats, strategy_config)
+                                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
+                                                (strat_label, res['File'], 'Batch', '', '', "{}", 
+                                                 res['Return [%]'], res['Max. Drawdown [%]'], res['Win Rate [%]'], 
+                                                 res['Total Trades'], res['Sharpe Ratio'], "none", "{}", strat_config_json))
+                                        conn.commit()
+                                        conn.close()
                                         
                                         st.download_button(
                                             label="📥 Export Batch Results to CSV",
