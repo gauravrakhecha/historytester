@@ -1657,6 +1657,7 @@ else:
             code += "\n    def init(self):\n"
             code += "        self.dividends_earned = 0.0\n"
             code += "        self.rights_premium_earned = 0.0\n"
+            code += "        self._prev_position_size = 0\n"
             
             # Map sources
             src_map = {"Close": "self.data.Close", "Open": "self.data.Open", "High": "self.data.High", "Low": "self.data.Low", "Volume": "self.data.Volume"}
@@ -1790,12 +1791,18 @@ else:
                 code += "        self._highest_since_entry = 0\n"
             
             code += "\n    def next(self):\n"
-            code += "        if hasattr(self.data, 'Dividend') and self.position:\n"
+            code += "        if hasattr(self.data, 'Dividend') and getattr(self, '_prev_position_size', 0) > 0:\n"
             code += "            div = self.data.Dividend[-1]\n"
-            code += "            if div > 0: self.dividends_earned += div * self.position.size\n"
-            code += "        if hasattr(self.data, 'Rights_Premium') and self.position:\n"
+            code += "            if div > 0:\n"
+            code += "                earned = div * self._prev_position_size\n"
+            code += "                self.dividends_earned += earned\n"
+            code += "                self._broker._cash += earned\n"
+            code += "        if hasattr(self.data, 'Rights_Premium') and getattr(self, '_prev_position_size', 0) > 0:\n"
             code += "            rp = self.data.Rights_Premium[-1]\n"
-            code += "            if rp > 0: self.rights_premium_earned += self.position.size * rp\n"
+            code += "            if rp > 0:\n"
+            code += "                earned = rp * self._prev_position_size\n"
+            code += "                self.rights_premium_earned += earned\n"
+            code += "                self._broker._cash += earned\n"
             
             # Helper logic generator
             # Helper logic generator
@@ -1947,6 +1954,8 @@ else:
             else:
                 if not has_any_exit:
                     code += "            pass  # No sell rules defined\n"
+            
+            code += "        self._prev_position_size = self.position.size\n"
 
             st.session_state['custom_strategy_code'] = code
             # Also store a friendly strategy name from indicators
