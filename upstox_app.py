@@ -338,6 +338,110 @@ def render_instrument_selector(key_prefix):
         return filtered[filtered['label'] == selected_label].iloc[0]
     return None
 
+# --- CORPORATE ACTIONS ENGINE ---
+async def fetch_corporate_actions_upstox(session, instrument_key, token):
+    if not isinstance(instrument_key, str) or "|" not in instrument_key:
+        return []
+    isin = instrument_key.split('|')[1]
+    url = f"https://api.upstox.com/v2/fundamentals/{isin}/corporate-actions"
+    headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
+    for attempt in range(3):
+        try:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get('data', [])
+        except Exception:
+            await asyncio.sleep(0.5 * (attempt + 1))
+    return []
+
+def apply_corporate_actions(df, corp_actions):
+    """
+    Modifies df in-place for Splits/Bonus mathematically.
+    Adds a 'Dividend' column populated with cash amounts.
+    """
+    if df.empty: return df
+    df['Dividend'] = 0.0
+    df['Rights_Premium'] = 0.0
+    
+    if not corp_actions:
+        return df
+
+    # Parse events into actionable records
+    splits_bonuses = []
+    for ev in corp_actions:
+        name = str(ev.get('name', '')).upper()
+        amount = ev.get('amount')
+        ratio_str = ev.get('ratio')
+        ex_date_str = ev.get('expiry_date')
+        if not ex_date_str: continue
+        
+        try: ex_date = pd.to_datetime(ex_date_str, format="%d %b %Y")
+        except: continue
+        
+        # Cash Dividends
+        if "DIVIDEND" in name and amount:
+            # Assign dividend to the exact ex-date if it exists in the data, 
+            # or the first available date ON or AFTER the ex-date.
+            mask = df['Timestamp'].dt.date >= ex_date.date()
+            if mask.any():
+                idx = df[mask].index[0]
+                df.at[idx, 'Dividend'] += float(amount)
+                
+        # Rights Cash Conversion
+        elif "RIGHTS" in name and ratio_str and ":" in str(ratio_str):
+            try:
+                a, b = map(float, str(ratio_str).split(':'))
+                if a > 0 and b > 0:
+                    # Ratio A:B means A new shares for every B old shares
+                    mask_prev = df['Timestamp'].dt.date < ex_date.date()
+                    if mask_prev.any():
+                        prev_close = df[mask_prev].iloc[-1]['Close']
+                        sub_price = float(amount) if amount else 0.0
+                        if prev_close > sub_price:
+                            # Theoretical Ex-Rights Price = (Old_Shares * Cum_Price + New_Shares * Sub_Price) / Total_Shares
+                            ex_rights_price = (b * prev_close + a * sub_price) / (b + a)
+                            # The cash value of the right per existing share
+                            right_value = prev_close - ex_rights_price
+                            
+                            ex_mask = df['Timestamp'].dt.date >= ex_date.date()
+                            if ex_mask.any():
+                                idx = df[ex_mask].index[0]
+                                df.at[idx, 'Rights_Premium'] += right_value
+            except Exception: pass
+
+        # Splits & Bonus
+        elif ("SPLIT" in name or "BONUS" in name) and ratio_str and ":" in str(ratio_str):
+            try:
+                a, b = map(float, str(ratio_str).split(':'))
+                if a <= 0 or b <= 0: continue
+                multiplier = 1.0
+                if "BONUS" in name:
+                    # ratio A:B means A bonus shares for every B shares held
+                    multiplier = (a + b) / b
+                else:
+                    # ratio A:B (usually new:old or face value change). We assume stock splits > 1 multiplier
+                    multiplier = max(a, b) / min(a, b)
+                
+                if multiplier != 1.0:
+                    splits_bonuses.append({'date': ex_date.date(), 'mult': multiplier})
+            except Exception: pass
+            
+    # Apply structural math backwards
+    # If split happens on ex_date, all prices BEFORE ex_date must be divided by multiplier.
+    if splits_bonuses:
+        splits_bonuses.sort(key=lambda x: x['date'], reverse=True)
+        for sb in splits_bonuses:
+            mask = df['Timestamp'].dt.date < sb['date']
+            df.loc[mask, 'Open'] /= sb['mult']
+            df.loc[mask, 'High'] /= sb['mult']
+            df.loc[mask, 'Low'] /= sb['mult']
+            df.loc[mask, 'Close'] /= sb['mult']
+            if 'Volume' in df.columns:
+                df.loc[mask, 'Volume'] *= sb['mult']
+                
+    return df
+
 # --- SUPERFAST ASYNC CORE ENGINE ---
 async def fetch_chunk_async(session, sem, broker, row, interval, start_dt, end_dt, auth_dict):
     start_str = start_dt.strftime("%Y-%m-%d")
@@ -400,7 +504,7 @@ async def fetch_chunk_async(session, sem, broker, row, interval, start_dt, end_d
                 await asyncio.sleep(0.5 * (attempt + 1))
         return pd.DataFrame()
 
-async def download_long_range_async(broker, row, interval, start_date, end_date, auth_dict, progress_bar=None):
+async def download_long_range_async(broker, row, interval, start_date, end_date, auth_dict, progress_bar=None, apply_corp_actions=False):
     delta = timedelta(days=30) if interval == "1 Minute" else timedelta(days=365)
     tasks, chunks = [], []
     curr = start_date
@@ -424,6 +528,12 @@ async def download_long_range_async(broker, row, interval, start_date, end_date,
         final_df = pd.concat(dfs, ignore_index=True)
         final_df.drop_duplicates(subset=['Timestamp'], keep='first', inplace=True)
         final_df.sort_values('Timestamp', inplace=True)
+        
+        if apply_corp_actions and broker == "Upstox":
+            async with aiohttp.ClientSession() as ca_session:
+                corp_actions = await fetch_corporate_actions_upstox(ca_session, row['instrument_key'], auth_dict['access_token'])
+                final_df = apply_corporate_actions(final_df, corp_actions)
+                
         return final_df
     return pd.DataFrame()
 
@@ -536,6 +646,7 @@ else:
 
         with col2:
             st.subheader("2. Settings")
+            st.checkbox("Sanitize Corporate Actions (Splits, Bonuses, Dividends)", value=True, key="apply_corp_actions")
             today = datetime.date.today()
             from_date = st.date_input("From Date", today - datetime.timedelta(days=365))
             to_date = st.date_input("To Date", today)
@@ -564,8 +675,9 @@ else:
                 status = st.empty()
                 pbar = st.progress(0)
                 
+                apply_ca = st.session_state.get('apply_corp_actions', True)
                 status.info(f"⚡ Fetching Base 1-Minute Data for {selected_row['tradingsymbol']} (Concurrent chunks...)")
-                df_master = run_async_download(selected_broker, selected_row, "1 Minute", from_date, to_date, st.session_state.auth_dict, pbar)
+                df_master = run_async_download(selected_broker, selected_row, "1 Minute", from_date, to_date, st.session_state.auth_dict, pbar, apply_corp_actions=apply_ca)
                 
                 if df_master.empty: status.error("No data returned. Check limits/date range.")
                 else:
@@ -595,6 +707,8 @@ else:
             
         with col2:
             st.subheader("2. Settings")
+            st.checkbox("Sanitize Corporate Actions (Splits, Bonuses, Dividends)", value=True, key="apply_corp_actions_single")
+            st.session_state['apply_corp_actions'] = st.session_state.get('apply_corp_actions_single', True)
             interval_select = st.selectbox("Interval", ["1 Minute", "Day", "Custom (Minutes)"])
             custom_val = 1
             if interval_select == "Custom (Minutes)":
@@ -614,7 +728,8 @@ else:
             if selected_row is None: st.error("❌ Please select an instrument first.")
             else:
                 pbar = st.progress(0)
-                df_hist = run_async_download(selected_broker, selected_row, download_interval, from_date, to_date, st.session_state.auth_dict, pbar)
+                apply_ca = st.session_state.get('apply_corp_actions', True)
+                df_hist = run_async_download(selected_broker, selected_row, download_interval, from_date, to_date, st.session_state.auth_dict, pbar, apply_corp_actions=apply_ca)
                 
                 if not df_hist.empty:
                     if interval_select == "Custom (Minutes)": df_hist = resample_dataframe(df_hist, custom_val)
@@ -680,13 +795,13 @@ else:
 
         with col2:
             st.subheader("2. Settings")
-            interval_select = st.selectbox("Interval", ["1 Minute", "Day", "Custom (Minutes)"])
+            st.checkbox("Sanitize Corporate Actions (Splits, Bonuses, Dividends)", value=True, key="apply_corp_actions_bulk")
+            st.session_state['apply_corp_actions'] = st.session_state.get('apply_corp_actions_bulk', True)
+            interval_options = ["1 Minute", "Day", "Custom (Minutes)"]
+            selected_intervals = st.multiselect("Intervals to Download", interval_options, default=["1 Minute"])
             custom_val = 1
-            if interval_select == "Custom (Minutes)":
-                custom_val = st.number_input("Minutes", min_value=1, value=7)
-                download_interval = "1 Minute"
-                save_label = f"{custom_val}Minute"
-            else: download_interval = interval_select; save_label = interval_select.replace(" ", "")
+            if "Custom (Minutes)" in selected_intervals:
+                custom_val = st.number_input("Minutes for Custom", min_value=1, value=7)
 
             today = datetime.date.today()
             from_date = st.date_input("From Date", today - datetime.timedelta(days=30))
@@ -694,33 +809,47 @@ else:
             local_path = st.text_input("📂 Folder Path", value="C:/TradingData/Bulk")
             
             if st.button("🚀 Start Bulk Async Download", use_container_width=True):
-                raw_symbols = sorted(list(set([s.strip() for s in symbol_text.replace('\n', ',').split(',') if s.strip()])))
-                status_area = st.empty()
-                pbar = st.progress(0)
-                os.makedirs(local_path, exist_ok=True)
-                
-                success_count, fail_count = 0, 0
-                for i, sym in enumerate(raw_symbols):
-                    status_area.text(f"⏳ ({i+1}/{len(raw_symbols)}) Async Fetching {sym}...")
-                    row = get_instrument_row(sym)
+                if not selected_intervals:
+                    st.error("Please select at least one interval.")
+                else:
+                    raw_symbols = sorted(list(set([s.strip() for s in symbol_text.replace('\n', ',').split(',') if s.strip()])))
+                    status_area = st.empty()
+                    pbar = st.progress(0)
+                    os.makedirs(local_path, exist_ok=True)
                     
-                    if row is not None:
-                        df = run_async_download(selected_broker, row, download_interval, from_date, to_date, st.session_state.auth_dict)
-                        if not df.empty:
-                            if interval_select == "Custom (Minutes)": df = resample_dataframe(df, custom_val)
+                    success_count, fail_count = 0, 0
+                    for i, sym in enumerate(raw_symbols):
+                        status_area.text(f"⏳ ({i+1}/{len(raw_symbols)}) Async Fetching {sym}...")
+                        row = get_instrument_row(sym)
+                        
+                        if row is not None:
+                            apply_ca = st.session_state.get('apply_corp_actions', True)
                             
-                            safe_sym = sym.replace(" ", "_")
-                            save_dir = os.path.join(local_path, safe_sym, save_label)
-                            os.makedirs(save_dir, exist_ok=True)
-                            full_path = os.path.join(save_dir, f"{safe_sym}_{save_label}_{from_date}_{to_date}.csv")
-                            df.to_csv(full_path, index=False)
-                            log_download(selected_broker, sym, row['instrument_key'], save_label, from_date, to_date, full_path)
-                            success_count += 1
+                            for intv in selected_intervals:
+                                if intv == "Custom (Minutes)":
+                                    dl_intv = "1 Minute"
+                                    sv_lbl = f"{custom_val}Minute"
+                                else:
+                                    dl_intv = intv
+                                    sv_lbl = intv.replace(" ", "")
+                                
+                                df = run_async_download(selected_broker, row, dl_intv, from_date, to_date, st.session_state.auth_dict, apply_corp_actions=apply_ca)
+                                if not df.empty:
+                                    if intv == "Custom (Minutes)": df = resample_dataframe(df, custom_val)
+                                    
+                                    safe_sym = sym.replace(" ", "_")
+                                    save_dir = os.path.join(local_path, safe_sym, sv_lbl)
+                                    os.makedirs(save_dir, exist_ok=True)
+                                    full_path = os.path.join(save_dir, f"{safe_sym}_{sv_lbl}_{from_date}_{to_date}.csv")
+                                    df.to_csv(full_path, index=False)
+                                    log_download(selected_broker, sym, row['instrument_key'], sv_lbl, from_date, to_date, full_path)
+                                    success_count += 1
+                                else:
+                                    fail_count += 1
                         else: fail_count += 1
-                    else: fail_count += 1
-                    pbar.progress((i + 1) / len(raw_symbols))
-                    
-                status_area.success(f"✅ Batch Complete! Success: {success_count}, Failed: {fail_count}")
+                        pbar.progress((i + 1) / len(raw_symbols))
+                        
+                    status_area.success(f"✅ Batch Complete! Success: {success_count}, Failed: {fail_count}")
 
     # --- TAB 4: OPTIONS CHAIN (UPSTOX) WITH TIMEFRAME CONVERTER ---
     elif app_mode == "📉 Options Chain (Upstox)":
@@ -1499,6 +1628,8 @@ else:
                     code += f"    zone_{i}_tight_pct = {z.get('tight_pct', 1.0)}\n"
             
             code += "\n    def init(self):\n"
+            code += "        self.dividends_earned = 0.0\n"
+            code += "        self.rights_premium_earned = 0.0\n"
             
             # Map sources
             src_map = {"Close": "self.data.Close", "Open": "self.data.Open", "High": "self.data.High", "Low": "self.data.Low", "Volume": "self.data.Volume"}
@@ -1632,6 +1763,12 @@ else:
                 code += "        self._highest_since_entry = 0\n"
             
             code += "\n    def next(self):\n"
+            code += "        if hasattr(self.data, 'Dividend') and self.position:\n"
+            code += "            div = self.data.Dividend[-1]\n"
+            code += "            if div > 0: self.dividends_earned += div * self.position.size\n"
+            code += "        if hasattr(self.data, 'Rights_Premium') and self.position:\n"
+            code += "            rp = self.data.Rights_Premium[-1]\n"
+            code += "            if rp > 0: self.rights_premium_earned += self.position.size * rp\n"
             
             # Helper logic generator
             # Helper logic generator
@@ -2061,6 +2198,11 @@ else:
                                         
                                         st.subheader("Performance Metrics")
                                         clean_stats = stats.drop(['_strategy', '_equity_curve', '_trades'], errors='ignore')
+                                        strat_instance = stats['_strategy']
+                                        if hasattr(strat_instance, 'dividends_earned'):
+                                            clean_stats['Dividends Earned [$]'] = strat_instance.dividends_earned
+                                        if hasattr(strat_instance, 'rights_premium_earned'):
+                                            clean_stats['Rights Premium Earned [$]'] = strat_instance.rights_premium_earned
                                         # Round floats to 3 decimals
                                         clean_stats = clean_stats.apply(lambda x: round(x, 3) if isinstance(x, (int, float)) else x)
                                         # Rename $ to ₹ for Indian market
@@ -2238,6 +2380,10 @@ else:
                                                     return round(float(v), 3) if not pd.isna(v) else default
                                                 except: return default
                                             
+                                            strat_instance = stats.get('_strategy', None)
+                                            divs = getattr(strat_instance, 'dividends_earned', 0.0) if strat_instance else 0.0
+                                            rights_prem = getattr(strat_instance, 'rights_premium_earned', 0.0) if strat_instance else 0.0
+                                            
                                             res = {
                                                 'File': os.path.basename(file_path),
                                                 'Return [%]': safe_stat('Return [%]'),
@@ -2247,6 +2393,8 @@ else:
                                                 'Sharpe Ratio': safe_stat('Sharpe Ratio'),
                                                 'Sortino Ratio': safe_stat('Sortino Ratio'),
                                                 'Calmar Ratio': safe_stat('Calmar Ratio'),
+                                                'Dividends Earned [₹]': divs,
+                                                'Rights Premium Earned [₹]': rights_prem,
                                                 'Equity Final [₹]': safe_stat('Equity Final [$]')
                                             }
                                             batch_results.append(res)

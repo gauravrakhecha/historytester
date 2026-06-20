@@ -3,6 +3,11 @@
 A powerful, all-in-one financial workstation designed to download historical market data across multiple brokers and run complex algorithmic trading backtests without writing a single line of code.
 
 ## 🚀 What's New in V2?
+- **Asynchronous Downloading Engine**: Completely overhauled the downloader to use `aiohttp`, delivering lightning-fast, chunked historical data downloads for all supported brokers.
+- **Upstox Corporate Actions Sanitization**: Natively integrates with the Upstox Fundamentals API to guarantee data integrity!
+  - *Splits & Bonuses*: Automatically applies structural mathematical multipliers backwards through time, ensuring your historical data never breaks your indicators on ex-dates.
+  - *Dividends*: Directly parses cash dividends and injects them into a dedicated `Dividend` column to cleanly calculate bottom-line P&L without destroying pure price-action charts.
+  - *Rights Issues*: Calculates the Theoretical Ex-Rights Price (TERP) and injects the open-market cash value of the rights entitlement straight into a dedicated `Rights_Premium` column. 
 - **Pandas-TA Integration**: Vastly expanded indicator library featuring over 130+ indicators natively integrated into the visual builder, including Supertrend, Parabolic SAR, ADX, Stochastic Oscillators, VWAP, and Keltner/Donchian Channels.
 - **Fully Automated No-Code Optimizer**: You no longer need to write Python code to optimize your indicators. The Visual Builder automatically exposes all indicator parameters (like SMA periods or Supertrend multipliers) to the grid-search engine!
 - **Advanced Range Zones**: Define specific market conditions (e.g. ADX > 65) to automatically trigger specific risk-management actions, like blocking new entries or dynamically tightening your trailing stop.
