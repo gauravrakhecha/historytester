@@ -14,10 +14,11 @@ import json
 from datetime import timedelta
 from dotenv import load_dotenv
 
+# --- CRITICAL FIX FOR STREAMLIT ASYNC COLLISIONS ---
 import nest_asyncio
-nest_asyncio.apply() # Fixes Streamlit "Event loop is already running" issues
+nest_asyncio.apply()
 
-import pandas_ta as pta # Explicitly imported to prevent runtime NameErrors in exec()
+import pandas_ta as pta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -55,7 +56,7 @@ BANK_NIFTY_LIST = [
 ]
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Unified Market Data Downloader", layout="wide", page_icon="⚡")
+st.set_page_config(page_title="Unified Market Data Downloader & Quant Engine", layout="wide", page_icon="⚡")
 
 # --- PLOTLY CHART HELPER ---
 def render_plotly_backtest(out_df, trades):
@@ -657,7 +658,8 @@ app_mode = st.sidebar.radio("Navigation", [
     "🛠️ Strategy Builder",
     "📈 Strategy & Indicator Plotter",
     "🚀 Backtester",
-    "📊 Backtest Results"
+    "📊 Backtest Results",
+    "🤖 ML Pattern Finder"
 ])
 
 # --- MAIN LOGIC ---
@@ -1784,11 +1786,17 @@ else:
                     code += f"        self.{name} = self.I(ta.volatility.average_true_range, pd.Series(self.data.High), pd.Series(self.data.Low), pd.Series(self.data.Close), self.{name}_period)\n"
                 elif ind['type'] == "Linear Regression Slope":
                     code += f"        from scipy.stats import linregress\n"
-                    code += f"        def get_slope(x): return linregress(range(len(x)), x)[0]\n"
+                    code += f"        def get_slope(x):\n"
+                    code += f"            mask = ~np.isnan(x)\n"
+                    code += f"            if mask.sum() < 2: return np.nan\n"
+                    code += f"            return linregress(np.arange(len(x))[mask], x[mask])[0]\n"
                     code += f"        self.{name} = self.I(rolling_apply, get_slope, {src}, self.{name}_period)\n"
                 elif ind['type'] == "R-Squared":
                     code += f"        from scipy.stats import linregress\n"
-                    code += f"        def get_r2(x): return linregress(range(len(x)), x)[2]**2\n"
+                    code += f"        def get_r2(x):\n"
+                    code += f"            mask = ~np.isnan(x)\n"
+                    code += f"            if mask.sum() < 2: return np.nan\n"
+                    code += f"            return linregress(np.arange(len(x))[mask], x[mask])[2]**2\n"
                     code += f"        self.{name} = self.I(rolling_apply, get_r2, {src}, self.{name}_period)\n"
                 elif ind['type'] == "ATR-Normalized Angle":
                     code += f"        atr_{name} = ta.volatility.average_true_range(pd.Series(self.data.High), pd.Series(self.data.Low), pd.Series(self.data.Close), self.{name}_period)\n"
@@ -1835,9 +1843,10 @@ else:
                     src_map[f"{raw_name}_k"] = f"self.{name}_k"
                     src_map[f"{raw_name}_d"] = f"self.{name}_d"
                 elif ind['type'] == "VWAP":
-                    code += f"        def get_vwap_{name}(high, low, close, volume, length):\n"
-                    code += f"            return pta.vwap(pd.Series(high), pd.Series(low), pd.Series(close), pd.Series(volume)).values\n"
-                    code += f"        self.{name} = self.I(get_vwap_{name}, self.data.High, self.data.Low, self.data.Close, self.data.Volume, self.{name}_period)\n"
+                    code += f"        def get_vwap_{name}(high, low, close, volume, index_arr):\n"
+                    code += f"            idx = pd.to_datetime(index_arr)\n"
+                    code += f"            return pta.vwap(pd.Series(high, index=idx), pd.Series(low, index=idx), pd.Series(close, index=idx), pd.Series(volume, index=idx)).values\n"
+                    code += f"        self.{name} = self.I(get_vwap_{name}, self.data.High, self.data.Low, self.data.Close, self.data.Volume, self.data.index)\n"
                 elif ind['type'] == "Keltner Channels":
                     code += f"        def get_kc_{name}(high, low, close, length, scalar):\n"
                     code += f"            df = pta.kc(pd.Series(high), pd.Series(low), pd.Series(close), length=int(length), scalar=float(scalar))\n"
@@ -1864,8 +1873,10 @@ else:
             # Trailing stop needs a tracking variable
             if rm_mode == "Trailing Stop Loss (%)" or has_zones:
                 code += "        self._highest_since_entry = 0\n"
+                code += "        self._lowest_since_entry = float('inf')\n"
             
             code += "\n    def next(self):\n"
+            code += "        if len(self.data.Close) < 2: return\n"
             code += "        if hasattr(self.data, 'Dividend') and getattr(self, '_prev_position_size', 0) > 0:\n"
             code += "            div = self.data.Dividend[-1]\n"
             code += "            if div > 0:\n"
@@ -1964,19 +1975,17 @@ else:
             code += f"        _buy_signal = {buy_cond_str}\n"
             code += f"        _sell_signal = {sell_cond_str}\n"
             
+            code += "        _block_new_entries = False\n"
             if has_regime:
                 code += "        if _no_trade_zone:\n"
-                code += "            _buy_signal = False\n"
-                code += "            _sell_signal = False\n"
+                code += "            _block_new_entries = True\n"
             
             if has_zones:
                 code += "        if _zone_block_entry:\n"
-                code += "            _buy_signal = False\n"
-                code += "            _sell_signal = False\n"
+                code += "            _block_new_entries = True\n"
                 code += "        if _zone_close_position:\n"
                 code += "            if self.position: self.position.close()\n"
-                code += "            _buy_signal = False\n"
-                code += "            _sell_signal = False\n"
+                code += "            _block_new_entries = True\n"
             
             code += "        if self.equity <= 0: return  # Bankrupt\n"
             
@@ -1986,13 +1995,11 @@ else:
                 code += "            if self.position.is_short: self.position.close()\n"
             if strat_dir in ["Long & Short", "Long Only"]:
                 sl_str, tp_str = get_sl_tp(is_short=False)
-                code += "            if not self.position.is_long:\n"
+                code += "            if not self.position.is_long and not _block_new_entries:\n"
                 if sl_str != "None" or tp_str != "None":
                     code += f"                self.buy({size_arg}, sl={sl_str}, tp={tp_str})\n"
                 else:
                     code += f"                self.buy({size_arg})\n"
-                if rm_mode == "Trailing Stop Loss (%)" or has_zones:
-                    code += f"                self._highest_since_entry = self.data.Close[-1]\n"
             
             # Execute Sell Signals
             code += "        if _sell_signal:\n"
@@ -2000,20 +2007,21 @@ else:
                 code += "            if self.position.is_long: self.position.close()\n"
             if strat_dir in ["Long & Short", "Short Only"]:
                 sl_str, tp_str = get_sl_tp(is_short=True)
-                code += "            if not self.position.is_short:\n"
+                code += "            if not self.position.is_short and not _block_new_entries:\n"
                 if sl_str != "None" or tp_str != "None":
                     code += f"                self.sell({size_arg}, sl={sl_str}, tp={tp_str})\n"
                 else:
                     code += f"                self.sell({size_arg})\n"
-                if rm_mode == "Trailing Stop Loss (%)" or has_zones:
-                    code += f"                self._lowest_since_entry = self.data.Close[-1]\n"
 
             # Trailing Stops
             if rm_mode == "Trailing Stop Loss (%)" or has_zones:
                 code += "        # Trailing Stops\n"
                 if strat_dir in ["Long & Short", "Long Only"]:
                     code += "        if self.position.is_long:\n"
-                    code += "            self._highest_since_entry = max(getattr(self, '_highest_since_entry', self.data.Close[-1]), self.data.Close[-1])\n"
+                    code += "            if getattr(self, '_prev_position_size', 0) <= 0:\n"
+                    code += "                self._highest_since_entry = self.position.entry_price\n"
+                    code += "            else:\n"
+                    code += "                self._highest_since_entry = max(getattr(self, '_highest_since_entry', self.data.Close[-1]), self.data.High[-1])\n"
                     if has_zones:
                         code += f"            _eff_trail = {trail_pct / 100} if '{rm_mode}' == 'Trailing Stop Loss (%)' else 0\n"
                         code += "            if getattr(self, '_zone_tight_sl', 0) > 0: _eff_trail = max(_eff_trail, self._zone_tight_sl / 100)\n"
@@ -2026,7 +2034,10 @@ else:
                 
                 if strat_dir in ["Long & Short", "Short Only"]:
                     code += "        if self.position.is_short:\n"
-                    code += "            self._lowest_since_entry = min(getattr(self, '_lowest_since_entry', self.data.Close[-1]), self.data.Close[-1])\n"
+                    code += "            if getattr(self, '_prev_position_size', 0) <= 0:\n"
+                    code += "                self._lowest_since_entry = self.position.entry_price\n"
+                    code += "            else:\n"
+                    code += "                self._lowest_since_entry = min(getattr(self, '_lowest_since_entry', self.data.Close[-1]), self.data.Low[-1])\n"
                     if has_zones:
                         code += f"            _eff_trail = {trail_pct / 100} if '{rm_mode}' == 'Trailing Stop Loss (%)' else 0\n"
                         code += "            if getattr(self, '_zone_tight_sl', 0) > 0: _eff_trail = max(_eff_trail, self._zone_tight_sl / 100)\n"
@@ -2196,6 +2207,12 @@ else:
                     if enable_optimizer:
                         st.info("Select parameters to optimize. The backtester will simulate every combination to find the most profitable settings.")
                         
+                        opt_mode = st.radio("Optimization Engine", ["Optuna (AI Bayesian Search - Recommended)", "Grid Search (Exhaustive)"], horizontal=True)
+                        n_trials = 50
+                        if opt_mode == "Optuna (AI Bayesian Search - Recommended)":
+                            st.caption("Optuna uses Machine Learning to find highly profitable parameters in a fraction of the time.")
+                            n_trials = st.number_input("Number of AI Trials (Guesses)", min_value=10, value=50, max_value=1000)
+                        
                         optimizable = []
                         # Indicators
                         for ind in st.session_state.get('indicators', []):
@@ -2281,7 +2298,33 @@ else:
                                         bt = Backtest(df, strategy_class, cash=init_cash, commission=total_comm, margin=marg, finalize_trades=True)
                                         
                                         if enable_optimizer and opt_kwargs_dynamic:
-                                            stats = bt.optimize(maximize=opt_maximize, **opt_kwargs_dynamic)
+                                            if opt_mode == "Optuna (AI Bayesian Search - Recommended)":
+                                                import optuna
+                                                # Suppress terminal spam
+                                                optuna.logging.set_verbosity(optuna.logging.WARNING)
+                                                
+                                                def objective(trial):
+                                                    trial_kwargs = {}
+                                                    for k, v in opt_kwargs_dynamic.items():
+                                                        if isinstance(v, range):
+                                                            trial_kwargs[k] = trial.suggest_int(k, v.start, v.stop - v.step, step=v.step)
+                                                        else:
+                                                            trial_kwargs[k] = trial.suggest_float(k, min(v), max(v))
+                                                    
+                                                    res = bt.run(**trial_kwargs)
+                                                    val = res.get(opt_maximize, 0)
+                                                    return float(val) if not pd.isna(val) else -999.0
+
+                                                study = optuna.create_study(direction="maximize")
+                                                with st.spinner(f"🤖 Optuna AI is running {n_trials} strategic trials to find the best setup..."):
+                                                    study.optimize(objective, n_trials=n_trials)
+                                                
+                                                st.success(f"✨ Optuna AI found optimal parameters: {study.best_params}")
+                                                # Run one final time with the best parameters to get the stats object
+                                                stats = bt.run(**study.best_params)
+                                            else:
+                                                with st.spinner("⏳ Running exhaustive Grid Search (this may take a while)..."):
+                                                    stats = bt.optimize(maximize=opt_maximize, **opt_kwargs_dynamic)
                                         else:
                                             stats = bt.run()
                                         
@@ -2777,3 +2820,172 @@ Your strategies are **saved permanently** on the server and survive app reloads:
                             st.error(f"Failed to delete: {e}")
             except Exception as e:
                 st.info("No backtests run yet.")
+
+    elif app_mode == "🤖 ML Pattern Finder":
+        st.header("🤖 Machine Learning Pattern Finder")
+        st.markdown("""
+        This tool uses **XGBoost** and **Decision Trees** to find hidden, high-probability setups in your strategy. 
+        It analyzes the exact indicator values at the moment a trade is entered and predicts which combinations lead to the highest win rates.
+        """)
+        
+        history = get_download_history()
+        code = st.session_state.get('custom_strategy_code', "")
+        
+        if not code:
+            st.warning("No strategy compiled yet. Go to Strategy Builder first.")
+        elif history.empty:
+            st.warning("No downloaded data found. Please download data first.")
+        else:
+            col1, col2, col3 = st.columns([2, 1, 1])
+            with col1:
+                options = history['file_path'].tolist()
+                labels = [f"{row.symbol} | {row.interval} | {row.start_date} to {row.end_date}" for _, row in history.iterrows()]
+                selected_idx = st.selectbox("Select Dataset to Mine for Patterns", range(len(options)), format_func=lambda x: labels[x])
+                selected_file = options[selected_idx]
+            
+            with col2:
+                target_metric = st.selectbox("Define 'Success'", ["Win (Return > 0)", "High R:R (Return > 1%)"])
+            
+            with col3:
+                min_trades_filter = st.number_input("Min Trades Filter", min_value=5, value=20, help="Minimum number of trades required to build the ML Model safely.")
+                
+            if st.button("🔍 Mine Strategy for AI Patterns", use_container_width=True, type="primary"):
+                with st.spinner("Running deep backtest and extracting indicator features..."):
+                    try:
+                        # 1. Run the Backtest to get trades
+                        df = pd.read_csv(selected_file)
+                        if 'Timestamp' in df.columns:
+                            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+                            df.set_index('Timestamp', inplace=True)
+                        
+                        namespace = {'Strategy': Strategy, 'crossover': crossover, 'ta': ta, 'pd': pd, 'np': np}
+                        exec(code, namespace)
+                        
+                        strategy_class = None
+                        for name, obj in namespace.items():
+                            if isinstance(obj, type) and issubclass(obj, Strategy) and obj is not Strategy:
+                                strategy_class = obj
+                                break
+                        
+                        bt = Backtest(df, strategy_class, cash=100000, finalize_trades=True)
+                        stats = bt.run()
+                        trades = stats['_trades'].copy()
+                        strat_instance = stats['_strategy']
+                        
+                        if len(trades) < min_trades_filter:
+                            st.error(f"Not enough trades ({len(trades)}) to train a machine learning model reliably. Try testing on a longer dataset or adjusting your strategy rules.")
+                        else:
+                            # 2. Extract Feature Matrix (X) at Entry Bars
+                            st.info(f"Extracting features from {len(trades)} trades...")
+                            feature_cols = []
+                            
+                            # Give ML access to everything we've built in the builder
+                            available_vars = ["Close", "Open", "High", "Low", "Volume"]
+                            for x in st.session_state.get('indicators', []):
+                                if x['type'] == "MACD": available_vars.extend([f"{x['name']}_line", f"{x['name']}_signal"])
+                                elif x['type'] == "Bollinger Bands": available_vars.extend([f"{x['name']}_high", f"{x['name']}_low"])
+                                else: available_vars.append(x['name'])
+                                
+                            for var in available_vars:
+                                if hasattr(strat_instance, var):
+                                    arr = getattr(strat_instance, var)
+                                    if isinstance(arr, (np.ndarray, pd.Series)) or hasattr(arr, '__len__'):
+                                        feature_name = f'Entry_{var}'
+                                        feature_cols.append(feature_name)
+                                        trades[feature_name] = [arr[i] if i < len(arr) else np.nan for i in trades['EntryBar']]
+                            
+                            # Drop NaNs safely to prevent XGBoost/Sklearn crashing
+                            ml_df = trades.dropna(subset=feature_cols).copy()
+                            X = ml_df[feature_cols]
+                            
+                            # 3. Define Target (y)
+                            if target_metric == "Win (Return > 0)":
+                                y = (ml_df['Return [%]'] > 0).astype(int)
+                            else:
+                                y = (ml_df['Return [%]'] > 1.0).astype(int)
+                            
+                            win_rate = y.mean() * 100
+                            st.write(f"**Baseline Probability of Success:** {win_rate:.1f}%")
+
+                            # 4. Train XGBoost for Feature Importance
+                            import xgboost as xgb
+                            from sklearn.tree import DecisionTreeClassifier, export_text
+                            
+                            # AI Core 1: Gradient Boosting setup
+                            model_xgb = xgb.XGBClassifier(n_estimators=100, max_depth=4, learning_rate=0.1, random_state=42)
+                            model_xgb.fit(X, y)
+                            
+                            importances = model_xgb.feature_importances_
+                            feat_imp_df = pd.DataFrame({'Feature': feature_cols, 'Importance': importances}).sort_values('Importance', ascending=True)
+                            feat_imp_df = feat_imp_df[feat_imp_df['Importance'] > 0.01] # Filter noise out
+                            
+                            st.subheader("📊 Which Indicators Matter Most?")
+                            fig = go.Figure(go.Bar(
+                                x=feat_imp_df['Importance'],
+                                y=feat_imp_df['Feature'].str.replace('Entry_', ''),
+                                orientation='h',
+                                marker=dict(color='#26a69a')
+                            ))
+                            fig.update_layout(title="XGBoost Feature Importance", template="plotly_dark", height=400, margin=dict(l=20, r=20, t=40, b=20))
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # 5. Train Decision Tree to extract human-readable Rules
+                            st.subheader("📜 AI-Discovered High Probability Rules")
+                            st.markdown("The AI has built a decision tree to find specific indicator ranges that dramatically increase your win rate. **Consider adding these to your Strategy Builder Range Zones!**")
+                            
+                            # We use a shallow tree to keep rules understandable. A deep tree overfits terribly in trading.
+                            dt = DecisionTreeClassifier(max_depth=3, min_samples_leaf=max(5, int(len(ml_df)*0.05)), random_state=42)
+                            dt.fit(X, y)
+                            
+                            tree_rules = export_text(dt, feature_names=[f.replace('Entry_', '') for f in feature_cols])
+                            
+                            # Pretty print the tree rules
+                            with st.expander("View Raw Decision Tree Logic", expanded=False):
+                                st.code(tree_rules, language="text")
+                            
+                            # Extract specific high-probability nodes manually
+                            from sklearn.tree import _tree
+                            
+                            def get_high_prob_rules(tree, feature_names):
+                                tree_ = tree.tree_
+                                feature_name = [
+                                    feature_names[i] if i != _tree.TREE_UNDEFINED else "undefined!"
+                                    for i in tree_.feature
+                                ]
+                                
+                                paths = []
+                                path = []
+                                
+                                def recurse(node, path, paths):
+                                    if tree_.feature[node] != _tree.TREE_UNDEFINED:
+                                        name = feature_name[node]
+                                        threshold = tree_.threshold[node]
+                                        p1, p2 = list(path), list(path)
+                                        p1.append(f"{name} <= {threshold:.2f}")
+                                        recurse(tree_.children_left[node], p1, paths)
+                                        p2.append(f"{name} > {threshold:.2f}")
+                                        recurse(tree_.children_right[node], p2, paths)
+                                    else:
+                                        # Leaf node
+                                        samples = tree_.n_node_samples[node]
+                                        values = tree_.value[node][0]
+                                        prob_win = values[1] / sum(values) if len(values) > 1 else 0
+                                        # To be considered a "Good Rule", it must beat the baseline win-rate by 10%
+                                        if prob_win > (y.mean() * 1.1) and samples >= 5: 
+                                            paths.append({"rule": " AND ".join(path), "prob": prob_win * 100, "samples": samples})
+                                
+                                recurse(0, path, paths)
+                                return sorted(paths, key=lambda x: x['prob'], reverse=True)
+
+                            best_rules = get_high_prob_rules(dt, [f.replace('Entry_', '') for f in feature_cols])
+                            
+                            if best_rules:
+                                for i, r in enumerate(best_rules):
+                                    st.success(f"**Pattern {i+1}:** Win Rate **{r['prob']:.1f}%** (Found in {r['samples']} trades)\n\n👉 **IF** {r['rule']}")
+                            else:
+                                st.info("The AI couldn't find any simple indicator combinations that significantly beat your baseline win rate. The strategy might be highly dependent on price action rather than these specific indicators.")
+
+                    except Exception as e:
+                        st.error(f"Error during ML analysis: {e}")
+                        import traceback
+                        st.code(traceback.format_exc(), language="text")

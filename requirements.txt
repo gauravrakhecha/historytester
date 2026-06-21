@@ -10,3 +10,5 @@ pandas-ta
 bokeh
 plotly
 scipynest_asyncio
+xgboost
+scikit-learn
