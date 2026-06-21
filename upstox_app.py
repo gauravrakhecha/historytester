@@ -1266,6 +1266,7 @@ else:
                             st.session_state['sl_pct'] = rm.get('sl_pct', 2.0)
                             st.session_state['tp_pct'] = rm.get('tp_pct', 5.0)
                             st.session_state['trail_pct'] = rm.get('trail_pct', 2.0)
+                            st.session_state['strat_dir'] = rm.get('strat_dir', 'Long Only')
                         st.success(f"Loaded {selected_strat} successfully!")
                         st.rerun()
                     except Exception as e:
@@ -1289,6 +1290,7 @@ else:
                     st.session_state['sl_pct'] = rm.get('sl_pct', 2.0)
                     st.session_state['tp_pct'] = rm.get('tp_pct', 5.0)
                     st.session_state['trail_pct'] = rm.get('trail_pct', 2.0)
+                    st.session_state['strat_dir'] = rm.get('strat_dir', 'Long Only')
                     st.success("Strategy loaded successfully!")
                     st.rerun()
                 except Exception as e:
@@ -1309,7 +1311,8 @@ else:
                             "mode": st.session_state.get('rm_mode', 'None (Use Sell Rules Only)'),
                             "sl_pct": st.session_state.get('sl_pct', 2.0),
                             "tp_pct": st.session_state.get('tp_pct', 5.0),
-                            "trail_pct": st.session_state.get('trail_pct', 2.0)
+                            "trail_pct": st.session_state.get('trail_pct', 2.0),
+                            "strat_dir": st.session_state.get('strat_dir', 'Long Only')
                         }
                     }
                     filename = f"{save_name}.json" if not save_name.endswith('.json') else save_name
@@ -1344,7 +1347,8 @@ else:
                     "mode": st.session_state.get('rm_mode', 'None (Use Sell Rules Only)'),
                     "sl_pct": st.session_state.get('sl_pct', 2.0),
                     "tp_pct": st.session_state.get('tp_pct', 5.0),
-                    "trail_pct": st.session_state.get('trail_pct', 2.0)
+                    "trail_pct": st.session_state.get('trail_pct', 2.0),
+                    "strat_dir": st.session_state.get('strat_dir', 'Long Only')
                 }
             }
             st.download_button(
@@ -1587,6 +1591,14 @@ else:
         
         # --- STEP 3: RISK MANAGEMENT ---
         st.subheader("Step 3: Risk Management (Optional)")
+        
+        # Strategy Direction
+        strat_dir = st.radio("Strategy Direction", [
+            "Long Only",
+            "Short Only",
+            "Long & Short"
+        ], horizontal=True)
+        st.session_state['strat_dir'] = strat_dir
         
         # Position Sizing
         pos_size_type = st.radio("Position Sizing", [
@@ -1863,97 +1875,105 @@ else:
                         code += f"            pass  # Normal Trading\n"
                 code += "\n"
             
-            # --- ENTRY LOGIC ---
-            code += "        if not self.position:\n"
-            code += "            if self.equity <= 0:\n"
-            code += "                return  # Bankrupt\n"
-            if st.session_state['buy_rules']:
-                if has_regime:
-                    code += "            if _no_trade_zone:\n"
-                    code += "                return  # No new entries in No-Trade Zone\n"
-                if has_zones:
-                    code += "            if _zone_block_entry:\n"
-                    code += "                return  # Blocked by Range Zone\n"
-                code += f"            if {buy_cond}:\n"
-                
-                # Position Sizing Logic
-                pos_size_type = st.session_state.get('pos_size_type', "Compound 100% Equity (Default)")
-                fixed_pos_value = st.session_state.get('fixed_pos_value', 50000.0)
-                if pos_size_type == "Fixed Value per Trade (₹)":
-                    code += f"                _trade_size = max(1, int({fixed_pos_value} // self.data.Close[-1]))\n"
-                    size_arg = "size=_trade_size"
-                else:
-                    size_arg = "size=0.999"
-
+            # --- ENTRY AND EXIT LOGIC ---
+            strat_dir = st.session_state.get('strat_dir', 'Long Only')
+            pos_size_type = st.session_state.get('pos_size_type', "Compound 100% Equity (Default)")
+            fixed_pos_value = st.session_state.get('fixed_pos_value', 50000.0)
+            if pos_size_type == "Fixed Value per Trade (₹)":
+                code += f"        _trade_size = max(1, int({fixed_pos_value} // self.data.Close[-1]))\n"
+                size_arg = "size=_trade_size"
+            else:
+                size_arg = "size=0.999"
+            
+            def get_sl_tp(is_short=False):
+                sl_str, tp_str = "None", "None"
                 if rm_mode == "Static % Stop Loss / Take Profit" and (sl_pct > 0 or tp_pct > 0):
                     if sl_pct > 0:
-                        code += f"                sl = self.data.Close[-1] * (1 - {sl_pct / 100})\n"
-                    else:
-                        code += f"                sl = None\n"
+                        if is_short: sl_str = f"self.data.Close[-1] * (1 + {sl_pct / 100})"
+                        else:        sl_str = f"self.data.Close[-1] * (1 - {sl_pct / 100})"
                     if tp_pct > 0:
-                        code += f"                tp = self.data.Close[-1] * (1 + {tp_pct / 100})\n"
-                    else:
-                        code += f"                tp = None\n"
-                    code += f"                self.buy({size_arg}, sl=sl, tp=tp)\n"
+                        if is_short: tp_str = f"self.data.Close[-1] * (1 - {tp_pct / 100})"
+                        else:        tp_str = f"self.data.Close[-1] * (1 + {tp_pct / 100})"
+                return sl_str, tp_str
+
+            buy_cond_str = buy_cond if st.session_state['buy_rules'] else 'False'
+            sell_cond_str = sell_cond if st.session_state['sell_rules'] else 'False'
+            
+            code += f"        _buy_signal = {buy_cond_str}\n"
+            code += f"        _sell_signal = {sell_cond_str}\n"
+            
+            if has_regime:
+                code += "        if _no_trade_zone:\n"
+                code += "            _buy_signal = False\n"
+                code += "            _sell_signal = False\n"
+            
+            if has_zones:
+                code += "        if _zone_block_entry:\n"
+                code += "            _buy_signal = False\n"
+                code += "            _sell_signal = False\n"
+                code += "        if _zone_close_position:\n"
+                code += "            if self.position: self.position.close()\n"
+                code += "            _buy_signal = False\n"
+                code += "            _sell_signal = False\n"
+            
+            code += "        if self.equity <= 0: return  # Bankrupt\n"
+            
+            # Execute Buy Signals
+            code += "        if _buy_signal:\n"
+            if strat_dir in ["Long & Short", "Short Only"]:
+                code += "            if self.position.is_short: self.position.close()\n"
+            if strat_dir in ["Long & Short", "Long Only"]:
+                sl_str, tp_str = get_sl_tp(is_short=False)
+                code += "            if not self.position.is_long:\n"
+                if sl_str != "None" or tp_str != "None":
+                    code += f"                self.buy({size_arg}, sl={sl_str}, tp={tp_str})\n"
                 else:
                     code += f"                self.buy({size_arg})\n"
-                
                 if rm_mode == "Trailing Stop Loss (%)" or has_zones:
                     code += f"                self._highest_since_entry = self.data.Close[-1]\n"
-            else:
-                code += "            pass\n"
             
-            # --- EXIT LOGIC ---
-            code += "        else:\n"
-            
-            has_any_exit = False
-            
-            # Trailing stop logic (fires even in no-trade zone)
-            if rm_mode == "Trailing Stop Loss (%)":
-                has_any_exit = True
-                code += "            # Trailing stop logic\n"
-                code += "            if self.data.Close[-1] > self._highest_since_entry:\n"
-                code += "                self._highest_since_entry = self.data.Close[-1]\n"
-                # If range zones can tighten the stop, use the tighter value
-                if has_zones:
-                    code += f"            _eff_trail = {trail_pct / 100}\n"
-                    code += f"            if _zone_tight_sl > 0:\n"
-                    code += f"                _eff_trail = min(_eff_trail, _zone_tight_sl / 100)\n"
-                    code += f"            trail_stop = self._highest_since_entry * (1 - _eff_trail)\n"
+            # Execute Sell Signals
+            code += "        if _sell_signal:\n"
+            if strat_dir in ["Long & Short", "Long Only"]:
+                code += "            if self.position.is_long: self.position.close()\n"
+            if strat_dir in ["Long & Short", "Short Only"]:
+                sl_str, tp_str = get_sl_tp(is_short=True)
+                code += "            if not self.position.is_short:\n"
+                if sl_str != "None" or tp_str != "None":
+                    code += f"                self.sell({size_arg}, sl={sl_str}, tp={tp_str})\n"
                 else:
-                    code += f"            trail_stop = self._highest_since_entry * (1 - {trail_pct / 100})\n"
-                code += "            if self.data.Close[-1] <= trail_stop:\n"
-                code += "                self.position.close()\n"
-                code += "                return\n"
-            
-            # Range zone: tighten stop even without trailing stop RM mode
-            if has_zones and rm_mode != "Trailing Stop Loss (%)":
-                has_any_exit = True
-                code += "            # Range zone: tighten trailing stop\n"
-                code += "            if _zone_tight_sl > 0:\n"
-                code += "                if self.data.Close[-1] > self._highest_since_entry:\n"
-                code += "                    self._highest_since_entry = self.data.Close[-1]\n"
-                code += "                _tight_stop = self._highest_since_entry * (1 - _zone_tight_sl / 100)\n"
-                code += "                if self.data.Close[-1] <= _tight_stop:\n"
-                code += "                    self.position.close()\n"
-                code += "                    return\n"
-            
-            # Range zone: close position
-            if has_zones:
-                has_any_exit = True
-                code += "            if _zone_close_position:\n"
-                code += "                self.position.close()\n"
-                code += "                return\n"
-            
+                    code += f"                self.sell({size_arg})\n"
+                if rm_mode == "Trailing Stop Loss (%)" or has_zones:
+                    code += f"                self._lowest_since_entry = self.data.Close[-1]\n"
 
-            # Sell rules
-            if st.session_state['sell_rules']:
-                has_any_exit = True
-                code += f"            if {sell_cond}:\n"
-                code += f"                self.position.close()\n"
-            else:
-                if not has_any_exit:
-                    code += "            pass  # No sell rules defined\n"
+            # Trailing Stops
+            if rm_mode == "Trailing Stop Loss (%)" or has_zones:
+                code += "        # Trailing Stops\n"
+                if strat_dir in ["Long & Short", "Long Only"]:
+                    code += "        if self.position.is_long:\n"
+                    code += "            self._highest_since_entry = max(getattr(self, '_highest_since_entry', self.data.Close[-1]), self.data.Close[-1])\n"
+                    if has_zones:
+                        code += f"            _eff_trail = {trail_pct / 100} if '{rm_mode}' == 'Trailing Stop Loss (%)' else 0\n"
+                        code += "            if getattr(self, '_zone_tight_sl', 0) > 0: _eff_trail = max(_eff_trail, self._zone_tight_sl / 100)\n"
+                        code += "            if _eff_trail > 0:\n"
+                        code += "                trail_stop = self._highest_since_entry * (1 - _eff_trail)\n"
+                        code += "                if self.data.Close[-1] <= trail_stop: self.position.close()\n"
+                    elif rm_mode == "Trailing Stop Loss (%)":
+                        code += f"            trail_stop = self._highest_since_entry * (1 - {trail_pct / 100})\n"
+                        code += "            if self.data.Close[-1] <= trail_stop: self.position.close()\n"
+                
+                if strat_dir in ["Long & Short", "Short Only"]:
+                    code += "        if self.position.is_short:\n"
+                    code += "            self._lowest_since_entry = min(getattr(self, '_lowest_since_entry', self.data.Close[-1]), self.data.Close[-1])\n"
+                    if has_zones:
+                        code += f"            _eff_trail = {trail_pct / 100} if '{rm_mode}' == 'Trailing Stop Loss (%)' else 0\n"
+                        code += "            if getattr(self, '_zone_tight_sl', 0) > 0: _eff_trail = max(_eff_trail, self._zone_tight_sl / 100)\n"
+                        code += "            if _eff_trail > 0:\n"
+                        code += "                trail_stop = self._lowest_since_entry * (1 + _eff_trail)\n"
+                        code += "                if self.data.Close[-1] >= trail_stop: self.position.close()\n"
+                    elif rm_mode == "Trailing Stop Loss (%)":
+                        code += f"            trail_stop = self._lowest_since_entry * (1 + {trail_pct / 100})\n"
+                        code += "            if self.data.Close[-1] >= trail_stop: self.position.close()\n"
             
             code += "        self._prev_position_size = self.position.size\n"
 
@@ -2330,7 +2350,8 @@ else:
                                                 'mode': st.session_state.get('rm_mode', 'None (Use Sell Rules Only)'),
                                                 'sl_pct': st.session_state.get('sl_pct', 0),
                                                 'tp_pct': st.session_state.get('tp_pct', 0),
-                                                'trail_pct': st.session_state.get('trail_pct', 0)
+                                                'trail_pct': st.session_state.get('trail_pct', 0),
+                                                'strat_dir': st.session_state.get('strat_dir', 'Long Only')
                                             }
                                         })
                                         stats_json = clean_stats.to_json()
@@ -2664,6 +2685,7 @@ Your strategies are **saved permanently** on the server and survive app reloads:
                                         st.markdown(f"- **{z.get('label', 'Zone')}** ({z['indicator']} in [{z['min_val']}, {z['max_val']}]) ➔ {z['action']}")
                                 rm = config.get('risk_management', {})
                                 if rm:
+                                    st.markdown(f"**Strategy Direction:** {rm.get('strat_dir', 'Long Only')}")
                                     st.markdown(f"**Risk Management:** {rm.get('mode', 'N/A')}")
                                     if rm.get('sl_pct', 0) > 0: st.markdown(f"- Stop Loss: {rm['sl_pct']}%")
                                     if rm.get('tp_pct', 0) > 0: st.markdown(f"- Take Profit: {rm['tp_pct']}%")
