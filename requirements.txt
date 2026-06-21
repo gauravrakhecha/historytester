@@ -9,4 +9,4 @@ ta
 pandas-ta
 bokeh
 plotly
-scipy
+scipynest_asyncio
