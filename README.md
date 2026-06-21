@@ -65,3 +65,10 @@ Because this application relies on deep numerical libraries (like `numba` and `p
 
 ---
 *Disclaimer: This tool is for backtesting and research purposes only. Always thoroughly paper-trade your strategies before deploying live capital.*
+
+## Version History
+### v3.3
+- Fixed 90% Drawdown bug by switching default position sizing to Fixed Value.
+- Added Year-wise CAGR and Drawdown details.
+- Added explicitly highlighted metrics (Start/End Date, Initial Capital) to Single Backtest.
+- Renamed Signal Inspector to Strategy & Indicator Plotter for clarity.

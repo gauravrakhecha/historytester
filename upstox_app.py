@@ -610,7 +610,7 @@ app_mode = st.sidebar.radio("Navigation", [
     "🛠️ Data Management",
     "⚙️ Settings",
     "🛠️ Strategy Builder",
-    "📋 Signal Inspector",
+    "📈 Strategy & Indicator Plotter",
     "🚀 Backtester",
     "📊 Backtest Results"
 ])
@@ -1602,12 +1602,12 @@ else:
         
         # Position Sizing
         pos_size_type = st.radio("Position Sizing", [
-            "Compound 100% Equity (Default)",
-            "Fixed Value per Trade (₹)"
-        ], horizontal=True, help="100% Equity compounds your entire capital on every trade. This leads to massive commissions and drawdowns on intraday data. Use Fixed Value for realistic results.")
+            "Fixed Value per Trade (₹) (Default)",
+            "Compound 100% Equity"
+        ], horizontal=True, help="Fixed Value per Trade provides a realistic capitalization limit. 100% Equity compounds your entire capital on every trade, which leads to massive commission death-spirals on intraday data.")
         
         fixed_pos_value = 0.0
-        if pos_size_type == "Fixed Value per Trade (₹)":
+        if pos_size_type == "Fixed Value per Trade (₹) (Default)":
             fixed_pos_value = st.number_input("Amount per Trade (₹)", value=st.session_state.get('fixed_pos_value', 50000.0), min_value=100.0, step=1000.0)
             
         st.session_state['pos_size_type'] = pos_size_type
@@ -1877,9 +1877,9 @@ else:
             
             # --- ENTRY AND EXIT LOGIC ---
             strat_dir = st.session_state.get('strat_dir', 'Long Only')
-            pos_size_type = st.session_state.get('pos_size_type', "Compound 100% Equity (Default)")
+            pos_size_type = st.session_state.get('pos_size_type', "Fixed Value per Trade (₹) (Default)")
             fixed_pos_value = st.session_state.get('fixed_pos_value', 50000.0)
-            if pos_size_type == "Fixed Value per Trade (₹)":
+            if pos_size_type == "Fixed Value per Trade (₹) (Default)":
                 code += f"        _trade_size = max(1, int({fixed_pos_value} // self.data.Close[-1]))\n"
                 size_arg = "size=_trade_size"
             else:
@@ -1986,9 +1986,9 @@ else:
             with st.expander("Show Generated Python Code (Read Only)"):
                 st.code(code, language='python')
 
-    elif app_mode == "📋 Signal Inspector":
-        st.header("📋 Signal Inspector")
-        st.markdown("Preview indicator values and buy/sell signals on your data **before** running a backtest. Export to CSV for manual verification.")
+    elif app_mode == "📈 Strategy & Indicator Plotter":
+        st.header("📈 Strategy & Indicator Plotter")
+        st.markdown("Visualize and plot indicator values, and verify buy/sell signals on your data **before** running a backtest. You can also export the plotted data to CSV.")
         
         history = get_download_history()
         code = st.session_state.get('custom_strategy_code', "")
@@ -2260,9 +2260,25 @@ else:
                                         clean_stats['Initial Capital [₹]'] = init_cash
                                             
                                         if hasattr(strat_instance, 'dividends_earned'):
-                                            clean_stats['Dividends Earned [$]'] = strat_instance.dividends_earned
+                                            clean_stats['Dividends Earned [₹]'] = strat_instance.dividends_earned
                                         if hasattr(strat_instance, 'rights_premium_earned'):
-                                            clean_stats['Rights Premium Earned [$]'] = strat_instance.rights_premium_earned
+                                            clean_stats['Rights Premium Earned [₹]'] = strat_instance.rights_premium_earned
+                                        
+                                        # --- TOP LEVEL METRIC CARDS ---
+                                        st.markdown("##### Key Metrics")
+                                        m1, m2, m3, m4 = st.columns(4)
+                                        m1.metric("Initial Capital", f"₹{init_cash:,.2f}")
+                                        m2.metric("Return (Ann.)", f"{round(stats.get('Return (Ann.) [%]', 0), 2)}%")
+                                        m3.metric("Max Drawdown", f"{round(stats.get('Max. Drawdown [%]', 0), 2)}%")
+                                        m4.metric("Win Rate", f"{round(stats.get('Win Rate [%]', 0), 2)}%")
+                                        
+                                        m5, m6, m7, m8 = st.columns(4)
+                                        m5.metric("Start Date", clean_stats.get('Start', 'N/A').split()[0])
+                                        m6.metric("End Date", clean_stats.get('End', 'N/A').split()[0])
+                                        m7.metric("Total Trades", int(stats.get('# Trades', 0)))
+                                        m8.metric("Sharpe Ratio", round(stats.get('Sharpe Ratio', 0), 2) if not pd.isna(stats.get('Sharpe Ratio', 0)) else "N/A")
+                                        st.divider()
+
                                         # Round floats to 3 decimals
                                         clean_stats = clean_stats.apply(lambda x: round(x, 3) if isinstance(x, (int, float)) else x)
                                         # Rename $ to ₹ for Indian market
@@ -2279,7 +2295,8 @@ else:
                                                 start_eq = group['Equity'].iloc[0]
                                                 end_eq = group['Equity'].iloc[-1]
                                                 ret = ((end_eq / start_eq) - 1) * 100
-                                                mdd = group['DrawdownPct'].max() * 100
+                                                mdd = group['DrawdownPct'].min() * 100  # Usually negative
+                                                if mdd > 0: mdd = -mdd
                                                 yearly_perf.append({
                                                     'Year': str(year), 
                                                     'Return [%]': round(ret, 2), 
@@ -2288,6 +2305,8 @@ else:
                                             if yearly_perf:
                                                 yearly_df = pd.DataFrame(yearly_perf).set_index('Year')
                                                 st.dataframe(yearly_df, use_container_width=True)
+                                        except Exception as e:
+                                            st.warning("Could not compute year-wise performance.")
                                         except Exception as e:
                                             st.write(f"Could not calculate yearly performance: {e}")
                                         
@@ -2532,14 +2551,6 @@ else:
         st.markdown("---")
         with st.expander("📖 How to Use the Backtester & Optimizer — Complete Guide", expanded=False):
             st.markdown('''
-### 🚀 Quick Start
-1. Go to **Strategy Builder** → Add indicators (SMA, RSI, MACD, etc.)
-2. Define **Buy Rules** (e.g., IF Close Crosses Above SMA_20)
-3. Define **Sell Rules** (e.g., IF RSI > 70)
-4. Click **Compile & Save Strategy**
-5. Come to **Backtester** → Select your dataset → Click **Run Backtest**
-
-### 📋 Signal Inspector
 Before running a full backtest, use the **Signal Inspector** tab to verify your indicator calculations.
 It generates a spreadsheet with OHLCV + all indicator values + Buy/Sell signal columns.
 Export to CSV and open in Excel to manually confirm everything looks correct.
