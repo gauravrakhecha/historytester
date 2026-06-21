@@ -14,6 +14,13 @@ import json
 from datetime import timedelta
 from dotenv import load_dotenv
 
+import nest_asyncio
+nest_asyncio.apply() # Fixes Streamlit "Event loop is already running" issues
+
+import pandas_ta as pta # Explicitly imported to prevent runtime NameErrors in exec()
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
 # --- BACKTESTING IMPORTS ---
 import backtesting
 from backtesting import Backtest, Strategy
@@ -50,100 +57,147 @@ BANK_NIFTY_LIST = [
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Unified Market Data Downloader", layout="wide", page_icon="⚡")
 
+# --- PLOTLY CHART HELPER ---
+def render_plotly_backtest(out_df, trades):
+    """Generates an interactive Plotly chart with native Streamlit support."""
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                        vertical_spacing=0.03, row_heights=[0.8, 0.2])
+
+    # Candlestick
+    fig.add_trace(go.Candlestick(
+        x=out_df.index,
+        open=out_df['Open'], high=out_df['High'],
+        low=out_df['Low'], close=out_df['Close'],
+        name='Price'
+    ), row=1, col=1)
+
+    # Dynamic Indicators
+    for col in out_df.columns:
+        if col not in ['Open', 'High', 'Low', 'Close', 'Volume', 'Buy_Signal', 'Sell_Signal']:
+            fig.add_trace(go.Scatter(x=out_df.index, y=out_df[col], mode='lines', name=col), row=1, col=1)
+
+    # Buy / Sell Signals
+    buys = out_df[out_df['Buy_Signal'] == 1] if 'Buy_Signal' in out_df.columns else pd.DataFrame()
+    sells = out_df[out_df['Sell_Signal'] == 1] if 'Sell_Signal' in out_df.columns else pd.DataFrame()
+    
+    if not buys.empty:
+        fig.add_trace(go.Scatter(
+            x=buys.index, y=buys['Low'] * 0.99, # Slightly below candle
+            mode='markers', marker=dict(symbol='triangle-up', size=12, color='#00ff00', line=dict(width=1, color='black')),
+            name='Buy Signal'
+        ), row=1, col=1)
+        
+    if not sells.empty:
+        fig.add_trace(go.Scatter(
+            x=sells.index, y=sells['High'] * 1.01, # Slightly above candle
+            mode='markers', marker=dict(symbol='triangle-down', size=12, color='#ff0000', line=dict(width=1, color='black')),
+            name='Sell Signal'
+        ), row=1, col=1)
+
+    # Volume
+    colors = ['#26a69a' if close >= open else '#ef5350' for close, open in zip(out_df['Close'], out_df['Open'])]
+    fig.add_trace(go.Bar(
+        x=out_df.index, y=out_df['Volume'], 
+        marker_color=colors, name='Volume'
+    ), row=2, col=1)
+
+    fig.update_layout(
+        title="Strategy Backtest Visualization",
+        xaxis_rangeslider_visible=False,
+        height=750,
+        margin=dict(l=20, r=20, t=50, b=20),
+        template='plotly_dark',
+        hovermode='x unified'
+    )
+    return fig
+
 # --- DATABASE SETUP & RESTORE FUNCTIONS ---
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS downloads_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            broker TEXT, symbol TEXT, instrument_key TEXT,
-            interval TEXT, start_date TEXT, end_date TEXT,
-            file_path TEXT, downloaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS bulk_templates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE, symbols TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS backtests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            strategy_name TEXT, symbol TEXT, timeframe TEXT, start_date TEXT, end_date TEXT,
-            parameters TEXT, return_pct REAL, max_drawdown_pct REAL, win_rate_pct REAL, plot_file TEXT,
-            num_trades INTEGER DEFAULT 0, sharpe_ratio REAL DEFAULT 0, strategy_config TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY, value TEXT)''')
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_FILE, timeout=10) as conn:
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS downloads_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                broker TEXT, symbol TEXT, instrument_key TEXT,
+                interval TEXT, start_date TEXT, end_date TEXT,
+                file_path TEXT, downloaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS bulk_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE, symbols TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS backtests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                strategy_name TEXT, symbol TEXT, timeframe TEXT, start_date TEXT, end_date TEXT,
+                parameters TEXT, return_pct REAL, max_drawdown_pct REAL, win_rate_pct REAL, plot_file TEXT,
+                num_trades INTEGER DEFAULT 0, sharpe_ratio REAL DEFAULT 0, strategy_config TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY, value TEXT)''')
+        conn.commit()
 
 def log_download(broker, symbol, key, interval, start, end, path):
     try:
-        conn = sqlite3.connect(DB_FILE)
-        conn.cursor().execute('''INSERT INTO downloads_log 
-            (broker, symbol, instrument_key, interval, start_date, end_date, file_path)
-            VALUES (?, ?, ?, ?, ?, ?, ?)''', 
-            (broker, symbol, str(key), interval, str(start), str(end), path))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(DB_FILE, timeout=10) as conn:
+            conn.execute('''INSERT INTO downloads_log 
+                (broker, symbol, instrument_key, interval, start_date, end_date, file_path)
+                VALUES (?, ?, ?, ?, ?, ?, ?)''', 
+                (broker, symbol, str(key), interval, str(start), str(end), path))
     except Exception as e: print(f"DB Log Error: {e}")
 
 def get_download_history():
-    conn = sqlite3.connect(DB_FILE)
-    try: df = pd.read_sql_query("SELECT * FROM downloads_log ORDER BY downloaded_at DESC", conn)
-    except: df = pd.DataFrame()
-    conn.close()
-    return df
+    try:
+        with sqlite3.connect(DB_FILE, timeout=10) as conn:
+            return pd.read_sql_query("SELECT * FROM downloads_log ORDER BY downloaded_at DESC", conn)
+    except: return pd.DataFrame()
 
 def rebuild_db_from_folder(root_folder):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
     restored_count = 0
     errors = 0
-    for dirpath, dirnames, filenames in os.walk(root_folder):
-        for file in filenames:
-            if file.endswith(".csv"):
-                try:
-                    full_path = os.path.join(dirpath, file)
-                    c.execute("SELECT id FROM downloads_log WHERE file_path = ?", (full_path,))
-                    if c.fetchone(): continue
-                    name_no_ext = file.replace(".csv", "")
-                    parts = name_no_ext.split('_')
-                    if len(parts) >= 4:
-                        date_end = parts[-1]
-                        date_start = parts[-2]
-                        interval_raw = parts[-3]
-                        symbol = "_".join(parts[:-3])
-                        c.execute('''
-                            INSERT INTO downloads_log (broker, symbol, instrument_key, interval, start_date, end_date, file_path, downloaded_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        ''', ("Unknown", symbol, "RESTORED", interval_raw, date_start, date_end, full_path, datetime.datetime.now()))
-                        restored_count += 1
-                except Exception:
-                    errors += 1
-    conn.commit()
-    conn.close()
+    try:
+        with sqlite3.connect(DB_FILE, timeout=10) as conn:
+            c = conn.cursor()
+            for dirpath, dirnames, filenames in os.walk(root_folder):
+                for file in filenames:
+                    if file.endswith(".csv"):
+                        try:
+                            full_path = os.path.join(dirpath, file)
+                            c.execute("SELECT id FROM downloads_log WHERE file_path = ?", (full_path,))
+                            if c.fetchone(): continue
+                            name_no_ext = file.replace(".csv", "")
+                            parts = name_no_ext.split('_')
+                            if len(parts) >= 4:
+                                date_end = parts[-1]
+                                date_start = parts[-2]
+                                interval_raw = parts[-3]
+                                symbol = "_".join(parts[:-3])
+                                c.execute('''
+                                    INSERT INTO downloads_log (broker, symbol, instrument_key, interval, start_date, end_date, file_path, downloaded_at)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                ''', ("Unknown", symbol, "RESTORED", interval_raw, date_start, date_end, full_path, datetime.datetime.now()))
+                                restored_count += 1
+                        except Exception:
+                            errors += 1
+            conn.commit()
+    except Exception as e:
+        print(f"DB Restore Error: {e}")
     return restored_count, errors
 
 def get_templates():
-    conn = sqlite3.connect(DB_FILE)
-    try: df = pd.read_sql_query("SELECT name, symbols FROM bulk_templates ORDER BY name", conn)
-    except: df = pd.DataFrame(columns=['name', 'symbols'])
-    conn.close()
-    return df
+    try:
+        with sqlite3.connect(DB_FILE, timeout=10) as conn:
+            return pd.read_sql_query("SELECT name, symbols FROM bulk_templates ORDER BY name", conn)
+    except: return pd.DataFrame(columns=['name', 'symbols'])
 
 def save_template(name, symbols_str):
     if not name or not symbols_str: return False, "Name or Symbols empty"
     try:
-        conn = sqlite3.connect(DB_FILE)
-        conn.cursor().execute("INSERT OR REPLACE INTO bulk_templates (name, symbols) VALUES (?, ?)", (name, symbols_str))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(DB_FILE, timeout=10) as conn:
+            conn.execute("INSERT OR REPLACE INTO bulk_templates (name, symbols) VALUES (?, ?)", (name, symbols_str))
         return True, "Saved successfully"
     except Exception as e: return False, str(e)
 
 def delete_template(name):
     try:
-        conn = sqlite3.connect(DB_FILE)
-        conn.cursor().execute("DELETE FROM bulk_templates WHERE name = ?", (name,))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(DB_FILE, timeout=10) as conn:
+            conn.execute("DELETE FROM bulk_templates WHERE name = ?", (name,))
         return True
     except: return False
 
@@ -205,7 +259,6 @@ def get_upstox_class(row):
     sym = str(row.get('tradingsymbol', '')).upper()
     name = str(row.get('name', '')).upper()
     
-    # Enhanced logic to capture 'Stock' accurately
     if inst == 'EQUITY' or 'EQ' in seg:
         if 'ETF' in sym or 'BEES' in sym or 'ETF' in name: return 'ETF'
         return 'Stock'
@@ -369,7 +422,6 @@ def apply_corporate_actions(df, corp_actions):
     if not corp_actions:
         return df
 
-    # Parse events into actionable records
     splits_bonuses = []
     for ev in corp_actions:
         name = str(ev.get('name', '')).upper()
@@ -383,8 +435,6 @@ def apply_corporate_actions(df, corp_actions):
         
         # Cash Dividends
         if "DIVIDEND" in name and amount:
-            # Assign dividend to the exact ex-date if it exists in the data, 
-            # or the first available date ON or AFTER the ex-date.
             mask = df['Timestamp'].dt.date >= ex_date.date()
             if mask.any():
                 idx = df[mask].index[0]
@@ -395,15 +445,12 @@ def apply_corporate_actions(df, corp_actions):
             try:
                 a, b = map(float, str(ratio_str).split(':'))
                 if a > 0 and b > 0:
-                    # Ratio A:B means A new shares for every B old shares
                     mask_prev = df['Timestamp'].dt.date < ex_date.date()
                     if mask_prev.any():
                         prev_close = df[mask_prev].iloc[-1]['Close']
                         sub_price = float(amount) if amount else 0.0
                         if prev_close > sub_price:
-                            # Theoretical Ex-Rights Price = (Old_Shares * Cum_Price + New_Shares * Sub_Price) / Total_Shares
                             ex_rights_price = (b * prev_close + a * sub_price) / (b + a)
-                            # The cash value of the right per existing share
                             right_value = prev_close - ex_rights_price
                             
                             ex_mask = df['Timestamp'].dt.date >= ex_date.date()
@@ -419,18 +466,14 @@ def apply_corporate_actions(df, corp_actions):
                 if a <= 0 or b <= 0: continue
                 multiplier = 1.0
                 if "BONUS" in name:
-                    # ratio A:B means A bonus shares for every B shares held
                     multiplier = (a + b) / b
                 else:
-                    # ratio A:B (usually new:old or face value change). We assume stock splits > 1 multiplier
                     multiplier = max(a, b) / min(a, b)
                 
                 if multiplier != 1.0:
                     splits_bonuses.append({'date': ex_date.date(), 'mult': multiplier})
             except Exception: pass
             
-    # Apply structural math backwards
-    # If split happens on ex_date, all prices BEFORE ex_date must be divided by multiplier.
     if splits_bonuses:
         splits_bonuses.sort(key=lambda x: x['date'], reverse=True)
         for sb in splits_bonuses:
@@ -524,7 +567,9 @@ async def download_long_range_async(broker, row, interval, start_date, end_date,
         for i, coro in enumerate(asyncio.as_completed(tasks)):
             res = await coro
             if not res.empty: dfs.append(res)
-            if progress_bar: progress_bar.progress(min(1.0, (i + 1) / len(tasks)))
+            if progress_bar: 
+                pct = min(1.0, (i + 1) / len(tasks))
+                progress_bar.progress(pct, text=f"Downloading Data: {int(pct * 100)}% Complete")
             
     if dfs:
         final_df = pd.concat(dfs, ignore_index=True)
@@ -540,9 +585,12 @@ async def download_long_range_async(broker, row, interval, start_date, end_date,
     return pd.DataFrame()
 
 def run_async_download(*args, **kwargs):
-    try: loop = asyncio.get_event_loop()
-    except RuntimeError: loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
-    return loop.run_until_complete(download_long_range_async(*args, **kwargs))
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(download_long_range_async(*args, **kwargs))
+    finally:
+        loop.close()
 
 def resample_dataframe(df, minutes):
     if df.empty: return df
@@ -550,14 +598,11 @@ def resample_dataframe(df, minutes):
     agg_dict = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
     if 'OI' in df.columns: agg_dict['OI'] = 'last'
     
-    # Prune non-existent columns from agg_dict (prevents errors on weird data structures)
+    # Prune non-existent columns from agg_dict
     agg_dict = {k: v for k, v in agg_dict.items() if k in df.columns}
     
-    def resample_day(day_df):
-        return day_df.resample(f'{minutes}min', origin='start').agg(agg_dict).dropna()
     try:
-        resampled = df.groupby(df.index.date).apply(resample_day)
-        if isinstance(resampled.index, pd.MultiIndex): resampled.index = resampled.index.droplevel(0)
+        resampled = df.resample(f'{minutes}min').agg(agg_dict).dropna()
         return resampled.reset_index()
     except Exception: return df.reset_index()
 
@@ -675,7 +720,7 @@ else:
                     tfs = list(range(int(tf_start), int(tf_end) + 1))
 
                 status = st.empty()
-                pbar = st.progress(0)
+                pbar = st.progress(0, text="0% - Starting Download...")
                 
                 apply_ca = st.session_state.get('apply_corp_actions', True)
                 status.info(f"⚡ Fetching Base 1-Minute Data for {selected_row['tradingsymbol']} (Concurrent chunks...)")
@@ -729,7 +774,7 @@ else:
         if st.button("⚡ Fetch Fast", use_container_width=True):
             if selected_row is None: st.error("❌ Please select an instrument first.")
             else:
-                pbar = st.progress(0)
+                pbar = st.progress(0, text="Initializing download...")
                 apply_ca = st.session_state.get('apply_corp_actions', True)
                 df_hist = run_async_download(selected_broker, selected_row, download_interval, from_date, to_date, st.session_state.auth_dict, pbar, apply_corp_actions=apply_ca)
                 
@@ -816,7 +861,7 @@ else:
                 else:
                     raw_symbols = sorted(list(set([s.strip() for s in symbol_text.replace('\n', ',').split(',') if s.strip()])))
                     status_area = st.empty()
-                    pbar = st.progress(0)
+                    pbar = st.progress(0, text="0% - Starting Bulk Download...")
                     os.makedirs(local_path, exist_ok=True)
                     
                     success_count, fail_count = 0, 0
@@ -849,7 +894,8 @@ else:
                                 else:
                                     fail_count += 1
                         else: fail_count += 1
-                        pbar.progress((i + 1) / len(raw_symbols))
+                        pct = (i + 1) / len(raw_symbols)
+                        pbar.progress(pct, text=f"Batch Progress: {int(pct * 100)}% - Processed {i+1} of {len(raw_symbols)}")
                         
                     status_area.success(f"✅ Batch Complete! Success: {success_count}, Failed: {fail_count}")
 
@@ -985,9 +1031,45 @@ else:
                         elif tf_mode_opt == "Continuous Range":
                             tfs_opt = list(range(int(tf_start_opt), int(tf_end_opt) + 1))
                             
-                        bar = st.progress(0)
+                        bar = st.progress(0, text="0% - Initializing Options Download...")
                         status = st.empty()
                         
+                        # Define Async Fetcher for Options
+                        async def fetch_opt_history(session, c, auth_token):
+                            url = f"https://api.upstox.com/v2/expired-instruments/historical-candle/{c['instrument_key']}/1minute/{opt_to_d}/{opt_from_d}"
+                            headers = {"Accept": "application/json", "Authorization": f"Bearer {auth_token}"}
+                            for attempt in range(3):
+                                try:
+                                    async with session.get(url, headers=headers) as resp:
+                                        if resp.status == 200:
+                                            data = await resp.json()
+                                            return c, data.get('data', {}).get('candles', [])
+                                except: await asyncio.sleep(0.5)
+                            return c, []
+                            
+                        async def download_all_options(items, auth_token):
+                            results = []
+                            sem = asyncio.Semaphore(10)
+                            async with aiohttp.ClientSession() as session:
+                                async def bound_fetch(c):
+                                    async with sem:
+                                        return await fetch_opt_history(session, c, auth_token)
+                                tasks = [bound_fetch(c) for c in items]
+                                for i, coro in enumerate(asyncio.as_completed(tasks)):
+                                    res = await coro
+                                    results.append(res)
+                                    pct = (i + 1) / total
+                                    bar.progress(pct, text=f"Fetching Options: {int(pct*100)}% ({i+1}/{total})")
+                            return results
+                        
+                        # Run Async Download
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            downloaded_data = loop.run_until_complete(download_all_options(items, st.session_state.auth_dict['access_token']))
+                        finally:
+                            loop.close()
+
                         if local_path:
                             try:
                                 safe_sym = st.session_state.current_symbol.replace(" ", "_")
@@ -995,51 +1077,32 @@ else:
                                 os.makedirs(base_folder, exist_ok=True)
                                 saved_count = 0
                                 
-                                for i, c in enumerate(items):
-                                    status.text(f"Fetching {c['trading_symbol']}... ({i+1}/{total})")
-                                    url = f"https://api.upstox.com/v2/expired-instruments/historical-candle/{c['instrument_key']}/1minute/{opt_to_d}/{opt_from_d}"
-                                    headers = {"Accept": "application/json", "Authorization": f"Bearer {st.session_state.auth_dict['access_token']}"}
-                                    try:
-                                        resp = requests.get(url, headers=headers)
-                                        if resp.status_code == 200:
-                                            data = resp.json().get('data', {}).get('candles', [])
-                                            if data:
-                                                df_1m = pd.DataFrame(data, columns=['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'OI'])
-                                                df_1m['Timestamp'] = pd.to_datetime(df_1m['Timestamp'])
-                                                
-                                                for tf in tfs_opt:
-                                                    df_tf = resample_dataframe(df_1m, tf) if tf > 1 else df_1m
-                                                    tf_folder = os.path.join(base_folder, f"{tf}Min")
-                                                    os.makedirs(tf_folder, exist_ok=True)
-                                                    f_path = os.path.join(tf_folder, f"{c['trading_symbol']}.csv")
-                                                    df_tf.to_csv(f_path, index=False)
-                                                    log_download("Upstox", c['trading_symbol'], c['instrument_key'], f"{tf} Minute", opt_from_d, opt_to_d, f_path)
-                                                    saved_count += 1
-                                    except Exception as e: print(e)
-                                    bar.progress((i+1)/total)
+                                for c, data in downloaded_data:
+                                    if data:
+                                        df_1m = pd.DataFrame(data, columns=['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'OI'])
+                                        df_1m['Timestamp'] = pd.to_datetime(df_1m['Timestamp'])
+                                        
+                                        for tf in tfs_opt:
+                                            df_tf = resample_dataframe(df_1m, tf) if tf > 1 else df_1m
+                                            tf_folder = os.path.join(base_folder, f"{tf}Min")
+                                            os.makedirs(tf_folder, exist_ok=True)
+                                            f_path = os.path.join(tf_folder, f"{c['trading_symbol']}.csv")
+                                            df_tf.to_csv(f_path, index=False)
+                                            log_download("Upstox", c['trading_symbol'], c['instrument_key'], f"{tf} Minute", opt_from_d, opt_to_d, f_path)
+                                            saved_count += 1
                                 status.success(f"✅ Saved {saved_count} total CSV files across {len(tfs_opt)} timeframes inside {base_folder}")
                             except Exception as e: st.error(f"Error saving locally: {e}")
                         else:
                             # ZIP Generation
                             buf = io.BytesIO()
                             with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-                                for i, c in enumerate(items):
-                                    status.text(f"Zipping {c['trading_symbol']}... ({i+1}/{total})")
-                                    url = f"https://api.upstox.com/v2/expired-instruments/historical-candle/{c['instrument_key']}/1minute/{opt_to_d}/{opt_from_d}"
-                                    headers = {"Accept": "application/json", "Authorization": f"Bearer {st.session_state.auth_dict['access_token']}"}
-                                    try:
-                                        resp = requests.get(url, headers=headers)
-                                        if resp.status_code == 200:
-                                            data = resp.json().get('data', {}).get('candles', [])
-                                            if data:
-                                                df_1m = pd.DataFrame(data, columns=['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'OI'])
-                                                df_1m['Timestamp'] = pd.to_datetime(df_1m['Timestamp'])
-                                                for tf in tfs_opt:
-                                                    df_tf = resample_dataframe(df_1m, tf) if tf > 1 else df_1m
-                                                    # Folders inside Zip: e.g. 5Min/NIFTY24CE.csv
-                                                    zf.writestr(f"{tf}Min/{c['trading_symbol']}.csv", df_tf.to_csv(index=False))
-                                    except: pass
-                                    bar.progress((i+1)/total)
+                                for c, data in downloaded_data:
+                                    if data:
+                                        df_1m = pd.DataFrame(data, columns=['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'OI'])
+                                        df_1m['Timestamp'] = pd.to_datetime(df_1m['Timestamp'])
+                                        for tf in tfs_opt:
+                                            df_tf = resample_dataframe(df_1m, tf) if tf > 1 else df_1m
+                                            zf.writestr(f"{tf}Min/{c['trading_symbol']}.csv", df_tf.to_csv(index=False))
                             status.success("Done creating ZIP archive!")
                             st.download_button("Download Generated ZIP", buf.getvalue(), f"Options_{st.session_state.current_expiry}_Timeframes.zip", "application/zip")
 
@@ -1078,7 +1141,7 @@ else:
                 
                 if not csv_files: st.warning("No CSV files found in the source directory.")
                 else:
-                    pbar = st.progress(0)
+                    pbar = st.progress(0, text="0% - Starting Batch Conversion...")
                     status = st.empty()
                     converted_count = 0
                     
@@ -1104,9 +1167,11 @@ else:
                                     df_resampled.to_csv(out_path, index=False)
                                     converted_count += 1
                         except Exception as e: st.toast(f"Failed {file_name}: {e}")
-                        pbar.progress((i + 1) / len(csv_files))
-                    
-                    status.success(f"✅ Offline Batch Conversion Complete! Created {converted_count} new timeframe files inside {dest_folder}.")
+                        
+                        pct = (i + 1) / len(csv_files)
+                        pbar.progress(pct, text=f"Conversion Progress: {int(pct * 100)}% ({i+1}/{len(csv_files)})")
+                
+                status.success(f"✅ Offline Batch Conversion Complete! Created {converted_count} new timeframe files inside {dest_folder}.")
 
     # --- TAB 6: LOGS ---
     elif app_mode == "🗄️ Download Logs":
@@ -1168,11 +1233,10 @@ else:
     elif app_mode == "⚙️ Settings":
         st.header("⚙️ Settings & Configuration")
         
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("SELECT key, value FROM settings")
-        existing = dict(c.fetchall())
-        conn.close()
+        with sqlite3.connect(DB_FILE, timeout=10) as conn:
+            c = conn.cursor()
+            c.execute("SELECT key, value FROM settings")
+            existing = dict(c.fetchall())
         
         with st.form("settings_form"):
             col1, col2 = st.columns(2)
@@ -1206,19 +1270,18 @@ else:
             
             if st.form_submit_button("Save Settings"):
                 os.makedirs(plot_dir, exist_ok=True)
-                conn = sqlite3.connect(DB_FILE)
-                c = conn.cursor()
-                settings = {
-                    "brokerage_commission": commission, 
-                    "slippage": slippage, 
-                    "brokerage_margin": margin, 
-                    "plot_dir": plot_dir, 
-                    "initial_capital": initial_capital
-                }
-                for k, v in settings.items():
-                    c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (k, str(v)))
-                conn.commit()
-                conn.close()
+                with sqlite3.connect(DB_FILE, timeout=10) as conn:
+                    c = conn.cursor()
+                    settings = {
+                        "brokerage_commission": commission, 
+                        "slippage": slippage, 
+                        "brokerage_margin": margin, 
+                        "plot_dir": plot_dir, 
+                        "initial_capital": initial_capital
+                    }
+                    for k, v in settings.items():
+                        c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (k, str(v)))
+                    conn.commit()
                 st.success("Settings saved successfully!")
 
 
@@ -1817,7 +1880,6 @@ else:
             code += "                self._broker._cash += earned\n"
             
             # Helper logic generator
-            # Helper logic generator
             def gen_logic(rules, prefix):
                 if not rules: return "False"
                 conds = []
@@ -2086,25 +2148,10 @@ else:
                                     use_container_width=True
                                 )
                                 
-                                # Native Bokeh chart for Signal Inspector
-                                st.subheader("Signal Visualization (Bokeh)")
-                                import streamlit.components.v1 as components
-                                import time
-                                
-                                conn = sqlite3.connect(DB_FILE)
-                                c = conn.cursor()
-                                c.execute("SELECT value FROM settings WHERE key='plot_dir'")
-                                res = c.fetchone()
-                                plot_dir = res[0] if res else "./plots"
-                                conn.close()
-                                os.makedirs(plot_dir, exist_ok=True)
-                                
-                                plot_filename = os.path.join(plot_dir, f"signal_plot_{int(time.time())}.html")
+                                st.subheader("Interactive Signal Visualization (Plotly)")
                                 try:
-                                    bt.plot(filename=plot_filename, open_browser=False, resample=False)
-                                    with open(plot_filename, 'r', encoding='utf-8') as f:
-                                        html_data = f.read()
-                                    components.html(html_data, height=850, scrolling=True)
+                                    fig = render_plotly_backtest(out_df, trades)
+                                    st.plotly_chart(fig, use_container_width=True)
                                 except Exception as plot_e:
                                     st.warning(f"Could not generate interactive chart: {plot_e}")
                                 
@@ -2217,11 +2264,10 @@ else:
                                     if not strategy_class:
                                         st.error("Could not find a valid Strategy class.")
                                     else:
-                                        conn = sqlite3.connect(DB_FILE)
-                                        c = conn.cursor()
-                                        c.execute("SELECT key, value FROM settings")
-                                        stng = dict(c.fetchall())
-                                        conn.close()
+                                        with sqlite3.connect(DB_FILE, timeout=10) as conn:
+                                            c = conn.cursor()
+                                            c.execute("SELECT key, value FROM settings")
+                                            stng = dict(c.fetchall())
                                         
                                         comm = float(stng.get("brokerage_commission", 0.0003))
                                         slippage = float(stng.get("slippage", 0.0002))
@@ -2340,22 +2386,34 @@ else:
                                             )
                                         else:
                                             st.info("No trades executed.")
-                                        # Native Bokeh Interactive Chart
-                                        st.subheader("Interactive Strategy Chart")
-                                        import streamlit.components.v1 as components
-                                        
-                                        plot_filename = os.path.join(plot_dir, f"plot_{int(time.time())}.html")
-                                        try:
-                                            # Using backtesting.py's native Bokeh plotting
-                                            # resample=False ensures all candles are plotted without downsampling (crucial for intraday realism)
-                                            bt.plot(filename=plot_filename, open_browser=False, resample=False)
-                                            with open(plot_filename, 'r', encoding='utf-8') as f:
-                                                html_data = f.read()
                                             
-                                            # Render HTML inside Streamlit iframe
-                                            components.html(html_data, height=850, scrolling=True)
+                                        st.subheader("Interactive Strategy Chart (Plotly)")
+                                        try:
+                                            out_df = df.copy()
+                                            out_df['Buy_Signal'] = 0
+                                            out_df['Sell_Signal'] = 0
+                                            
+                                            if not trades.empty:
+                                                for _, t in trades.iterrows():
+                                                    if t['EntryBar'] < len(out_df): out_df.iloc[t['EntryBar'], out_df.columns.get_loc('Buy_Signal')] = 1
+                                                    if t['ExitBar'] < len(out_df): out_df.iloc[t['ExitBar'], out_df.columns.get_loc('Sell_Signal')] = 1
+                                                    
+                                            available_vars = []
+                                            for x in st.session_state.get('indicators', []):
+                                                if x['type'] == "MACD": available_vars.extend([f"{x['name']}_line", f"{x['name']}_signal"])
+                                                elif x['type'] == "Bollinger Bands": available_vars.extend([f"{x['name']}_high", f"{x['name']}_low"])
+                                                else: available_vars.append(x['name'])
+                                                
+                                            for var_name in available_vars:
+                                                if hasattr(strat_instance, var_name):
+                                                    arr = getattr(strat_instance, var_name)
+                                                    if hasattr(arr, '__len__') and len(arr) == len(out_df):
+                                                        out_df[var_name] = list(arr)
+                                                        
+                                            fig = render_plotly_backtest(out_df, trades)
+                                            st.plotly_chart(fig, use_container_width=True)
                                         except Exception as plot_e:
-                                            st.warning(f"Could not generate interactive chart: {plot_e}")
+                                            st.warning(f"Could not generate Plotly chart: {plot_e}")
                                         
                                         # Save to DB
                                         strat_label = st.session_state.get('strategy_label', 'Custom')
@@ -2374,30 +2432,29 @@ else:
                                             }
                                         })
                                         stats_json = clean_stats.to_json()
-                                        conn = sqlite3.connect(DB_FILE)
-                                        c = conn.cursor()
-                                        # Ensure columns exist for older DBs
-                                        for col_def in ['full_stats TEXT', 'num_trades INTEGER DEFAULT 0', 'sharpe_ratio REAL DEFAULT 0', 'strategy_config TEXT']:
-                                            try: c.execute(f"ALTER TABLE backtests ADD COLUMN {col_def}")
-                                            except: pass
-                                        
-                                        try:
-                                            ret_pct = round(float(stats['Return [%]']), 3) if 'Return [%]' in stats.index else 0.0
-                                            mdd_pct = round(float(stats['Max. Drawdown [%]']), 3) if 'Max. Drawdown [%]' in stats.index else 0.0
-                                            wr_pct = round(float(stats['Win Rate [%]']), 3) if 'Win Rate [%]' in stats.index else 0.0
-                                            n_trades = int(stats['# Trades']) if '# Trades' in stats.index else 0
-                                            sharpe = round(float(stats['Sharpe Ratio']), 3) if 'Sharpe Ratio' in stats.index and not pd.isna(stats['Sharpe Ratio']) else 0.0
-                                        except:
-                                            ret_pct, mdd_pct, wr_pct, n_trades, sharpe = 0.0, 0.0, 0.0, 0, 0.0
-                                        
-                                        c.execute('''INSERT INTO backtests 
-                                            (strategy_name, symbol, timeframe, start_date, end_date, parameters, return_pct, max_drawdown_pct, win_rate_pct, num_trades, sharpe_ratio, plot_file, full_stats, strategy_config)
-                                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
-                                            (strat_label, selected_row.symbol, selected_row.interval, selected_row.start_date, selected_row.end_date, 
-                                             "{}", ret_pct, mdd_pct, wr_pct, n_trades, sharpe,
-                                             "plotly_native", stats_json, strat_config_json))
-                                        conn.commit()
-                                        conn.close()
+                                        with sqlite3.connect(DB_FILE, timeout=10) as conn:
+                                            c = conn.cursor()
+                                            # Ensure columns exist for older DBs
+                                            for col_def in ['full_stats TEXT', 'num_trades INTEGER DEFAULT 0', 'sharpe_ratio REAL DEFAULT 0', 'strategy_config TEXT']:
+                                                try: c.execute(f"ALTER TABLE backtests ADD COLUMN {col_def}")
+                                                except: pass
+                                            
+                                            try:
+                                                ret_pct = round(float(stats['Return [%]']), 3) if 'Return [%]' in stats.index else 0.0
+                                                mdd_pct = round(float(stats['Max. Drawdown [%]']), 3) if 'Max. Drawdown [%]' in stats.index else 0.0
+                                                wr_pct = round(float(stats['Win Rate [%]']), 3) if 'Win Rate [%]' in stats.index else 0.0
+                                                n_trades = int(stats['# Trades']) if '# Trades' in stats.index else 0
+                                                sharpe = round(float(stats['Sharpe Ratio']), 3) if 'Sharpe Ratio' in stats.index and not pd.isna(stats['Sharpe Ratio']) else 0.0
+                                            except:
+                                                ret_pct, mdd_pct, wr_pct, n_trades, sharpe = 0.0, 0.0, 0.0, 0, 0.0
+                                            
+                                            c.execute('''INSERT INTO backtests 
+                                                (strategy_name, symbol, timeframe, start_date, end_date, parameters, return_pct, max_drawdown_pct, win_rate_pct, num_trades, sharpe_ratio, plot_file, full_stats, strategy_config)
+                                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
+                                                (strat_label, selected_row.symbol, selected_row.interval, selected_row.start_date, selected_row.end_date, 
+                                                 "{}", ret_pct, mdd_pct, wr_pct, n_trades, sharpe,
+                                                 "plotly_native", stats_json, strat_config_json))
+                                            conn.commit()
                                         st.success("Backtest saved to database!")
                                 except Exception as e:
                                     st.error(f"Error during backtest: {e}")
@@ -2425,13 +2482,12 @@ else:
                             st.warning("No .csv files found in the directory.")
                         else:
                             st.write(f"Found {len(csv_files)} files. Starting batch run...")
-                            progress_bar = st.progress(0)
+                            progress_bar = st.progress(0, text="0% - Starting Batch Backtest...")
                             
-                            conn = sqlite3.connect(DB_FILE)
-                            c = conn.cursor()
-                            c.execute("SELECT key, value FROM settings")
-                            stng = dict(c.fetchall())
-                            conn.close()
+                            with sqlite3.connect(DB_FILE, timeout=10) as conn:
+                                c = conn.cursor()
+                                c.execute("SELECT key, value FROM settings")
+                                stng = dict(c.fetchall())
                             
                             comm = float(stng.get("brokerage_commission", 0.0003))
                             slippage = float(stng.get("slippage", 0.0002))
@@ -2501,7 +2557,8 @@ else:
                                         except Exception as file_e:
                                             failed_files.append({'File': os.path.basename(file_path), 'Error': str(file_e)[:100]})
                                             
-                                        progress_bar.progress((idx + 1) / len(csv_files))
+                                        pct = (idx + 1) / len(csv_files)
+                                        progress_bar.progress(pct, text=f"Batch Backtest: {int(pct * 100)}% ({idx+1}/{len(csv_files)})")
                                         
                                     if batch_results:
                                         batch_df = pd.DataFrame(batch_results)
@@ -2517,17 +2574,16 @@ else:
                                         # Save Batch to DB
                                         strat_label = st.session_state.get('strategy_label', 'Batch Custom')
                                         strat_config_json = json.dumps({'indicators': st.session_state.get('indicators', [])})
-                                        conn = sqlite3.connect(DB_FILE)
-                                        c = conn.cursor()
-                                        for res in batch_results:
-                                            c.execute('''INSERT INTO backtests 
-                                                (strategy_name, symbol, timeframe, start_date, end_date, parameters, return_pct, max_drawdown_pct, win_rate_pct, num_trades, sharpe_ratio, plot_file, full_stats, strategy_config)
-                                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
-                                                (strat_label, res['File'], 'Batch', '', '', "{}", 
-                                                 res['Return [%]'], res['Max. Drawdown [%]'], res['Win Rate [%]'], 
-                                                 res['Total Trades'], res['Sharpe Ratio'], "none", "{}", strat_config_json))
-                                        conn.commit()
-                                        conn.close()
+                                        with sqlite3.connect(DB_FILE, timeout=10) as conn:
+                                            c = conn.cursor()
+                                            for res in batch_results[:-1]: # exclude average row from DB
+                                                c.execute('''INSERT INTO backtests 
+                                                    (strategy_name, symbol, timeframe, start_date, end_date, parameters, return_pct, max_drawdown_pct, win_rate_pct, num_trades, sharpe_ratio, plot_file, full_stats, strategy_config)
+                                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
+                                                    (strat_label, res['File'], 'Batch', '', '', "{}", 
+                                                     res['Return [%]'], res['Max. Drawdown [%]'], res['Win Rate [%]'], 
+                                                     res['Total Trades'], res['Sharpe Ratio'], "none", "{}", strat_config_json))
+                                            conn.commit()
                                         
                                         st.download_button(
                                             label="📥 Export Batch Results to CSV",
@@ -2623,102 +2679,101 @@ Your strategies are **saved permanently** on the server and survive app reloads:
 
     elif app_mode == "📊 Backtest Results":
         st.header("📊 Backtest Results Database")
-        conn = sqlite3.connect(DB_FILE)
-        # Ensure columns exist for older DBs
-        c = conn.cursor()
-        for col_def in ['full_stats TEXT', 'num_trades INTEGER DEFAULT 0', 'sharpe_ratio REAL DEFAULT 0', 'strategy_config TEXT']:
-            try: c.execute(f"ALTER TABLE backtests ADD COLUMN {col_def}")
-            except: pass
-        conn.commit()
-        
-        try: 
-            df = pd.read_sql_query("SELECT id, strategy_name, symbol, timeframe, start_date, end_date, return_pct, max_drawdown_pct, win_rate_pct, num_trades, sharpe_ratio, created_at FROM backtests ORDER BY created_at DESC", conn)
+        with sqlite3.connect(DB_FILE, timeout=10) as conn:
+            # Ensure columns exist for older DBs
+            c = conn.cursor()
+            for col_def in ['full_stats TEXT', 'num_trades INTEGER DEFAULT 0', 'sharpe_ratio REAL DEFAULT 0', 'strategy_config TEXT']:
+                try: c.execute(f"ALTER TABLE backtests ADD COLUMN {col_def}")
+                except: pass
+            conn.commit()
             
-            if df.empty:
-                st.info("No backtests run yet.")
-            else:
-                # Round floats for display
-                for col in df.select_dtypes(include=['float']).columns:
-                    df[col] = df[col].round(3)
+            try: 
+                df = pd.read_sql_query("SELECT id, strategy_name, symbol, timeframe, start_date, end_date, return_pct, max_drawdown_pct, win_rate_pct, num_trades, sharpe_ratio, created_at FROM backtests ORDER BY created_at DESC", conn)
                 
-                st.dataframe(df, use_container_width=True, height=400)
-                
-                st.subheader("🔍 Inspect a Specific Run")
-                run_labels = [f"#{row.id} | {row.strategy_name} | {row.symbol} | {row.timeframe} | Return: {row.return_pct}%" for _, row in df.iterrows()]
-                selected_run_idx = st.selectbox("Select Run", range(len(run_labels)), format_func=lambda x: run_labels[x])
-                run_id = df.iloc[selected_run_idx]['id']
-                
-                if run_id:
-                    # Full stats
-                    c = conn.cursor()
-                    c.execute("SELECT full_stats, strategy_config FROM backtests WHERE id=?", (run_id,))
-                    res = c.fetchone()
+                if df.empty:
+                    st.info("No backtests run yet.")
+                else:
+                    # Round floats for display
+                    for col in df.select_dtypes(include=['float']).columns:
+                        df[col] = df[col].round(3)
                     
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        st.markdown("#### 📊 Full Performance Metrics")
-                        if res and res[0]:
-                            try:
-                                full_stats = json.loads(res[0])
-                                st.json(full_stats)
-                            except:
-                                st.warning("Could not parse stored metrics.")
-                        else:
-                            st.info("No detailed metrics stored for this run.")
+                    st.dataframe(df, use_container_width=True, height=400)
                     
-                    with col_b:
-                        st.markdown("#### 🛠️ Strategy Configuration Used")
-                        if res and res[1]:
-                            try:
-                                config = json.loads(res[1])
-                                if config.get('indicators'):
-                                    st.markdown("**Indicators:**")
-                                    for ind in config['indicators']:
-                                        st.markdown(f"- **{ind['name']}** ({ind['type']}) — Source: {ind['source']}, Params: {ind.get('params', {})}")
-                                if config.get('buy_rules'):
-                                    st.markdown("**Buy Rules:**")
-                                    for r in config['buy_rules']:
-                                        v2 = r['var2'] if not r.get('is_num') else f"_{r['var2']}_"
-                                        st.markdown(f"- {r.get('logic','IF')} {r['var1']} {r['operator']} {v2}")
-                                if config.get('sell_rules'):
-                                    st.markdown("**Sell Rules:**")
-                                    for r in config['sell_rules']:
-                                        v2 = r['var2'] if not r.get('is_num') else f"_{r['var2']}_"
-                                        st.markdown(f"- {r.get('logic','IF')} {r['var1']} {r['operator']} {v2}")
-                                if config.get('no_trade_rules'):
-                                    st.markdown("**🚫 No-Trade Zone Rules:**")
-                                    for r in config['no_trade_rules']:
-                                        v2 = r['var2'] if not r.get('is_num') else f"_{r['var2']}_"
-                                        st.markdown(f"- {r.get('logic','IF')} {r['var1']} {r['operator']} {v2}")
-                                if config.get('range_zones'):
-                                    st.markdown("**🎯 Advanced Range Zones:**")
-                                    for z in config['range_zones']:
-                                        st.markdown(f"- **{z.get('label', 'Zone')}** ({z['indicator']} in [{z['min_val']}, {z['max_val']}]) ➔ {z['action']}")
-                                rm = config.get('risk_management', {})
-                                if rm:
-                                    st.markdown(f"**Strategy Direction:** {rm.get('strat_dir', 'Long Only')}")
-                                    st.markdown(f"**Risk Management:** {rm.get('mode', 'N/A')}")
-                                    if rm.get('sl_pct', 0) > 0: st.markdown(f"- Stop Loss: {rm['sl_pct']}%")
-                                    if rm.get('tp_pct', 0) > 0: st.markdown(f"- Take Profit: {rm['tp_pct']}%")
-                                    if rm.get('trail_pct', 0) > 0: st.markdown(f"- Trailing Stop: {rm['trail_pct']}%")
-                            except:
-                                st.warning("Could not parse stored strategy config.")
-                        else:
-                            st.info("No strategy config stored for this run.")
-                
-                # Delete old runs
-                st.markdown("---")
-                st.subheader("🗑️ Manage Results")
-                delete_id = st.number_input("Enter Run ID to delete", min_value=1, step=1)
-                if st.button("Delete Run"):
-                    try:
+                    st.subheader("🔍 Inspect a Specific Run")
+                    run_labels = [f"#{row.id} | {row.strategy_name} | {row.symbol} | {row.timeframe} | Return: {row.return_pct}%" for _, row in df.iterrows()]
+                    selected_run_idx = st.selectbox("Select Run", range(len(run_labels)), format_func=lambda x: run_labels[x])
+                    run_id = df.iloc[selected_run_idx]['id']
+                    
+                    if run_id:
+                        # Full stats
                         c = conn.cursor()
-                        c.execute("DELETE FROM backtests WHERE id=?", (delete_id,))
-                        conn.commit()
-                        st.success(f"Run #{delete_id} deleted.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Failed to delete: {e}")
-        except Exception as e:
-            st.info("No backtests run yet.")
-        conn.close()
+                        c.execute("SELECT full_stats, strategy_config FROM backtests WHERE id=?", (run_id,))
+                        res = c.fetchone()
+                        
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            st.markdown("#### 📊 Full Performance Metrics")
+                            if res and res[0]:
+                                try:
+                                    full_stats = json.loads(res[0])
+                                    st.json(full_stats)
+                                except:
+                                    st.warning("Could not parse stored metrics.")
+                            else:
+                                st.info("No detailed metrics stored for this run.")
+                        
+                        with col_b:
+                            st.markdown("#### 🛠️ Strategy Configuration Used")
+                            if res and res[1]:
+                                try:
+                                    config = json.loads(res[1])
+                                    if config.get('indicators'):
+                                        st.markdown("**Indicators:**")
+                                        for ind in config['indicators']:
+                                            st.markdown(f"- **{ind['name']}** ({ind['type']}) — Source: {ind['source']}, Params: {ind.get('params', {})}")
+                                    if config.get('buy_rules'):
+                                        st.markdown("**Buy Rules:**")
+                                        for r in config['buy_rules']:
+                                            v2 = r['var2'] if not r.get('is_num') else f"_{r['var2']}_"
+                                            st.markdown(f"- {r.get('logic','IF')} {r['var1']} {r['operator']} {v2}")
+                                    if config.get('sell_rules'):
+                                        st.markdown("**Sell Rules:**")
+                                        for r in config['sell_rules']:
+                                            v2 = r['var2'] if not r.get('is_num') else f"_{r['var2']}_"
+                                            st.markdown(f"- {r.get('logic','IF')} {r['var1']} {r['operator']} {v2}")
+                                    if config.get('no_trade_rules'):
+                                        st.markdown("**🚫 No-Trade Zone Rules:**")
+                                        for r in config['no_trade_rules']:
+                                            v2 = r['var2'] if not r.get('is_num') else f"_{r['var2']}_"
+                                            st.markdown(f"- {r.get('logic','IF')} {r['var1']} {r['operator']} {v2}")
+                                    if config.get('range_zones'):
+                                        st.markdown("**🎯 Advanced Range Zones:**")
+                                        for z in config['range_zones']:
+                                            st.markdown(f"- **{z.get('label', 'Zone')}** ({z['indicator']} in [{z['min_val']}, {z['max_val']}]) ➔ {z['action']}")
+                                    rm = config.get('risk_management', {})
+                                    if rm:
+                                        st.markdown(f"**Strategy Direction:** {rm.get('strat_dir', 'Long Only')}")
+                                        st.markdown(f"**Risk Management:** {rm.get('mode', 'N/A')}")
+                                        if rm.get('sl_pct', 0) > 0: st.markdown(f"- Stop Loss: {rm['sl_pct']}%")
+                                        if rm.get('tp_pct', 0) > 0: st.markdown(f"- Take Profit: {rm['tp_pct']}%")
+                                        if rm.get('trail_pct', 0) > 0: st.markdown(f"- Trailing Stop: {rm['trail_pct']}%")
+                                except:
+                                    st.warning("Could not parse stored strategy config.")
+                            else:
+                                st.info("No strategy config stored for this run.")
+                    
+                    # Delete old runs
+                    st.markdown("---")
+                    st.subheader("🗑️ Manage Results")
+                    delete_id = st.number_input("Enter Run ID to delete", min_value=1, step=1)
+                    if st.button("Delete Run"):
+                        try:
+                            c = conn.cursor()
+                            c.execute("DELETE FROM backtests WHERE id=?", (delete_id,))
+                            conn.commit()
+                            st.success(f"Run #{delete_id} deleted.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to delete: {e}")
+            except Exception as e:
+                st.info("No backtests run yet.")
