@@ -2900,9 +2900,10 @@ Your strategies are **saved permanently** on the server and survive app reloads:
                             
                             # 3. Define Target (y)
                             if target_metric == "Win (Return > 0)":
-                                y = (ml_df['Return [%]'] > 0).astype(int)
+                                y = (ml_df['ReturnPct'] > 0).astype(int)
                             else:
-                                y = (ml_df['Return [%]'] > 1.0).astype(int)
+                                y = (ml_df['ReturnPct'] > 0.01).astype(int)  # 0.01 is 1.0%
+                            
                             
                             win_rate = y.mean() * 100
                             st.write(f"**Baseline Probability of Success:** {win_rate:.1f}%")

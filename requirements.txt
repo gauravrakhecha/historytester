@@ -12,3 +12,5 @@ plotly
 scipynest_asyncio
 xgboost
 scikit-learn
+
+optuna
