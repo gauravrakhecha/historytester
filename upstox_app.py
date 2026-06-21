@@ -11,7 +11,11 @@ import asyncio
 import aiohttp
 import requests
 import json
+import re
+import tempfile
+import psutil
 from datetime import timedelta
+import concurrent.futures
 from dotenv import load_dotenv
 
 # --- CRITICAL FIX FOR STREAMLIT ASYNC COLLISIONS ---
@@ -29,6 +33,10 @@ from backtesting.lib import crossover
 import ta
 import numpy as np
 import uuid
+
+# --- ML IMPORTS ---
+import xgboost as xgb
+from sklearn.tree import DecisionTreeClassifier, export_text, _tree
 
 # --- CONFIGURATION ---
 load_dotenv()
@@ -95,8 +103,8 @@ def render_plotly_backtest(out_df, trades):
             name='Sell Signal'
         ), row=1, col=1)
 
-    # Volume
-    colors = ['#26a69a' if close >= open else '#ef5350' for close, open in zip(out_df['Close'], out_df['Open'])]
+    # Volume (Vectorized for extreme performance)
+    colors = np.where(out_df['Close'] >= out_df['Open'], '#26a69a', '#ef5350')
     fig.add_trace(go.Bar(
         x=out_df.index, y=out_df['Volume'], 
         marker_color=colors, name='Volume'
@@ -128,11 +136,27 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 strategy_name TEXT, symbol TEXT, timeframe TEXT, start_date TEXT, end_date TEXT,
                 parameters TEXT, return_pct REAL, max_drawdown_pct REAL, win_rate_pct REAL, plot_file TEXT,
-                num_trades INTEGER DEFAULT 0, sharpe_ratio REAL DEFAULT 0, strategy_config TEXT,
+                num_trades INTEGER DEFAULT 0, sharpe_ratio REAL DEFAULT 0, strategy_config TEXT, full_stats TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
         c.execute('''CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY, value TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS ml_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                strategy_name TEXT, target_metric TEXT, dataset_path TEXT,
+                pattern_rules TEXT, win_rate REAL, samples INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
         conn.commit()
+
+def get_global_settings():
+    try:
+        with sqlite3.connect(DB_FILE, timeout=10) as conn:
+            c = conn.cursor()
+            c.execute("SELECT key, value FROM settings")
+            return dict(c.fetchall())
+    except:
+        return {}
+GLOBAL_SETTINGS = get_global_settings()
+default_parquet_dir = GLOBAL_SETTINGS.get("parquet_data_dir", "C:/TradingData")
 
 def log_download(broker, symbol, key, interval, start, end, path):
     try:
@@ -157,12 +181,12 @@ def rebuild_db_from_folder(root_folder):
             c = conn.cursor()
             for dirpath, dirnames, filenames in os.walk(root_folder):
                 for file in filenames:
-                    if file.endswith(".csv"):
+                    if file.endswith((".csv", ".parquet")):
                         try:
                             full_path = os.path.join(dirpath, file)
                             c.execute("SELECT id FROM downloads_log WHERE file_path = ?", (full_path,))
                             if c.fetchone(): continue
-                            name_no_ext = file.replace(".csv", "")
+                            name_no_ext = file.replace(".csv", "").replace(".parquet", "")
                             parts = name_no_ext.split('_')
                             if len(parts) >= 4:
                                 date_end = parts[-1]
@@ -560,30 +584,50 @@ async def download_long_range_async(broker, row, interval, start_date, end_date,
         curr = nxt + timedelta(days=1)
 
     dfs = []
+    temp_files = [] # PyArrow RAM protection
     sem = asyncio.Semaphore(5) 
+    
     async with aiohttp.ClientSession() as session:
         for c_start, c_end in chunks:
             tasks.append(fetch_chunk_async(session, sem, broker, row, interval, c_start, c_end, auth_dict))
         
         for i, coro in enumerate(asyncio.as_completed(tasks)):
             res = await coro
-            if not res.empty: dfs.append(res)
+            if not res.empty: 
+                dfs.append(res)
+                # Dump to Parquet if RAM is critical
+                if psutil.virtual_memory().percent > 85 and len(dfs) > 1:
+                    tf = tempfile.NamedTemporaryFile(delete=False, suffix='.parquet')
+                    pd.concat(dfs, ignore_index=True).to_parquet(tf.name, engine='pyarrow')
+                    temp_files.append(tf.name)
+                    dfs = []
+                    
             if progress_bar: 
                 pct = min(1.0, (i + 1) / len(tasks))
                 progress_bar.progress(pct, text=f"Downloading Data: {int(pct * 100)}% Complete")
             
-    if dfs:
+    if temp_files:
+        if dfs:
+            tf = tempfile.NamedTemporaryFile(delete=False, suffix='.parquet')
+            pd.concat(dfs, ignore_index=True).to_parquet(tf.name, engine='pyarrow')
+            temp_files.append(tf.name)
+            dfs = []
+        final_df = pd.concat([pd.read_parquet(f, engine='pyarrow') for f in temp_files], ignore_index=True)
+        for f in temp_files: os.remove(f)
+    elif dfs:
         final_df = pd.concat(dfs, ignore_index=True)
-        final_df.drop_duplicates(subset=['Timestamp'], keep='first', inplace=True)
-        final_df.sort_values('Timestamp', inplace=True)
+    else:
+        return pd.DataFrame()
         
-        if apply_corp_actions and broker == "Upstox":
-            async with aiohttp.ClientSession() as ca_session:
-                corp_actions = await fetch_corporate_actions_upstox(ca_session, row['instrument_key'], auth_dict['access_token'])
-                final_df = apply_corporate_actions(final_df, corp_actions)
-                
-        return final_df
-    return pd.DataFrame()
+    final_df.drop_duplicates(subset=['Timestamp'], keep='first', inplace=True)
+    final_df.sort_values('Timestamp', inplace=True)
+    
+    if apply_corp_actions and broker == "Upstox":
+        async with aiohttp.ClientSession() as ca_session:
+            corp_actions = await fetch_corporate_actions_upstox(ca_session, row['instrument_key'], auth_dict['access_token'])
+            final_df = apply_corporate_actions(final_df, corp_actions)
+            
+    return final_df
 
 def run_async_download(*args, **kwargs):
     loop = asyncio.new_event_loop()
@@ -599,9 +643,7 @@ def resample_dataframe(df, minutes):
     agg_dict = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
     if 'OI' in df.columns: agg_dict['OI'] = 'last'
     
-    # Prune non-existent columns from agg_dict
     agg_dict = {k: v for k, v in agg_dict.items() if k in df.columns}
-    
     try:
         resampled = df.resample(f'{minutes}min').agg(agg_dict).dropna()
         return resampled.reset_index()
@@ -643,6 +685,80 @@ def get_expired_contracts(instrument_key, expiry_date, token):
     except Exception as e:
         st.error(f"Connection Error: {e}")
         return []
+
+# --- MULTIPROCESSING WORKER ---
+def _backtest_worker(args):
+    """Top-level worker for fully parallel ProcessPoolExecutor. Operates outside Streamlit loops."""
+    file_path, code, init_cash, comm, marg, feature_vars = args
+    import pandas as pd
+    import numpy as np
+    from backtesting import Backtest, Strategy
+    from backtesting.lib import crossover
+    import ta
+    import pandas_ta as pta
+
+    try:
+        if file_path.endswith('.parquet'): df = pd.read_parquet(file_path, engine='pyarrow')
+        else: df = pd.read_csv(file_path)
+            
+        if df.empty or len(df) < 50: return {'File': os.path.basename(file_path), 'Error': 'Too few rows'}
+            
+        if 'Timestamp' in df.columns:
+            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+            df.set_index('Timestamp', inplace=True)
+
+        namespace = {'Strategy': Strategy, 'crossover': crossover, 'ta': ta, 'pd': pd, 'np': np, 'pta': pta}
+        exec(code, namespace)
+
+        strategy_class = next((obj for obj in namespace.values() if isinstance(obj, type) and issubclass(obj, Strategy) and obj is not Strategy), None)
+        if not strategy_class: return {'File': os.path.basename(file_path), 'Error': 'No Strategy class found'}
+
+        bt = Backtest(df, strategy_class, cash=init_cash, commission=comm, margin=marg, finalize_trades=True)
+        stats = bt.run()
+        
+        def safe_stat(key, default=0):
+            try:
+                v = stats[key]
+                return round(float(v), 3) if not pd.isna(v) else default
+            except: return default
+
+        strat_instance = stats.get('_strategy', None)
+        
+        ann_ret = safe_stat('Return (Ann.) [%]')
+        if 'Return (Ann.) [%]' not in stats or pd.isna(stats['Return (Ann.) [%]']):
+            duration_days = (stats['End'] - stats['Start']).days if ('End' in stats and 'Start' in stats) else 0
+            if duration_days > 0: ann_ret = ((stats['Return [%]'] / 100 + 1) ** (365.25 / duration_days) - 1) * 100
+                
+        res = {
+            'File': os.path.basename(file_path),
+            'Initial Capital [₹]': init_cash,
+            'Return [%]': safe_stat('Return [%]'),
+            'Return (Ann.) [%]': round(ann_ret, 3),
+            'Max. Drawdown [%]': safe_stat('Max. Drawdown [%]'),
+            'Win Rate [%]': safe_stat('Win Rate [%]'),
+            'Total Trades': int(safe_stat('# Trades')),
+            'Sharpe Ratio': safe_stat('Sharpe Ratio'),
+            'Sortino Ratio': safe_stat('Sortino Ratio'),
+            'Calmar Ratio': safe_stat('Calmar Ratio'),
+            'Dividends Earned [₹]': getattr(strat_instance, 'dividends_earned', 0.0) if strat_instance else 0.0,
+            'Rights Premium Earned [₹]': getattr(strat_instance, 'rights_premium_earned', 0.0) if strat_instance else 0.0,
+            'Equity Final [₹]': safe_stat('Equity Final [$]')
+        }
+
+        trades_df = pd.DataFrame()
+        if feature_vars and '_trades' in stats and not stats['_trades'].empty:
+            trades = stats['_trades'].copy()
+            for var in feature_vars:
+                if hasattr(strat_instance, var):
+                    arr = getattr(strat_instance, var)
+                    if isinstance(arr, (np.ndarray, pd.Series, list)) or hasattr(arr, '__len__'):
+                        trades[f'Entry_{var}'] = [arr[i] if i < len(arr) else np.nan for i in trades['EntryBar']]
+            trades_df = trades
+
+        return {'File': os.path.basename(file_path), 'Stats': res, 'Trades': trades_df}
+    except Exception as e:
+        return {'File': os.path.basename(file_path), 'Error': str(e)[:100]}
+
 
 # --- APP NAVIGATION ---
 st.sidebar.divider()
@@ -708,7 +824,7 @@ else:
                 with rc1: tf_start = st.number_input("Start Range (Mins)", min_value=1, value=1)
                 with rc2: tf_end = st.number_input("End Range (Mins)", min_value=1, value=58)
                 
-            local_path = st.text_input("📂 Base Save Folder", value="C:/TradingData/MasterConverter")
+            local_path = st.text_input("📁 Base Save Folder", value=default_parquet_dir)
 
         if st.button("🚀 Download Master & Extract Timeframes", type="primary", use_container_width=True):
             if selected_row is None: st.error("❌ Please select an instrument first.")
@@ -737,9 +853,9 @@ else:
 
                     for tf in tfs:
                         df_resampled = resample_dataframe(df_master, tf)
-                        filename = f"{safe_sym}_{tf}Min_{from_date}_to_{to_date}.csv"
+                        filename = f"{safe_sym}_{tf}Min_{from_date}_to_{to_date}.parquet"
                         save_path = os.path.join(symbol_dir, filename)
-                        df_resampled.to_csv(save_path, index=False)
+                        df_resampled.to_parquet(save_path, engine='pyarrow')
                         log_download(selected_broker, selected_row['tradingsymbol'], selected_row['instrument_key'], f"{tf} Minute", from_date, to_date, save_path)
                     
                     status.success(f"🎉 Fully Complete! Generated {len(tfs)} timeframe files locally inside `{symbol_dir}`")
@@ -771,7 +887,7 @@ else:
             today = datetime.date.today()
             from_date = st.date_input("From Date", today - datetime.timedelta(days=7))
             to_date = st.date_input("To Date", today)
-            local_path = st.text_input("📂 Local Save Path", placeholder="E.g. C:/TradingData")
+            local_path = st.text_input("📁 Local Save Path", value=default_parquet_dir)
 
         if st.button("⚡ Fetch Fast", use_container_width=True):
             if selected_row is None: st.error("❌ Please select an instrument first.")
@@ -785,17 +901,17 @@ else:
                     st.success(f"Success! Fetched {len(df_hist)} rows.")
                     
                     safe_name = selected_row['tradingsymbol'].replace(" ", "_")
-                    filename = f"{safe_name}_{save_label}_{from_date}_{to_date}.csv"
+                    filename = f"{safe_name}_{save_label}_{from_date}_{to_date}.parquet"
                     
                     if local_path:
                         full_dir = os.path.join(local_path, safe_name, save_label)
                         os.makedirs(full_dir, exist_ok=True)
                         full_path = os.path.join(full_dir, filename)
-                        df_hist.to_csv(full_path, index=False)
+                        df_hist.to_parquet(full_path, engine='pyarrow')
                         log_download(selected_broker, selected_row['tradingsymbol'], selected_row['instrument_key'], save_label, from_date, to_date, full_path)
                         st.success(f"✅ Saved to: {full_path}")
                     else:
-                        st.download_button("💾 Download CSV", df_hist.to_csv(index=False).encode('utf-8'), file_name=filename, mime='text/csv')
+                        st.download_button("💾 Download CSV", df_hist.to_csv(index=False).encode('utf-8'), file_name=filename.replace('.parquet','.csv'), mime='text/csv')
                 else:
                     st.error("No data found for this range.")
 
@@ -855,7 +971,7 @@ else:
             today = datetime.date.today()
             from_date = st.date_input("From Date", today - datetime.timedelta(days=30))
             to_date = st.date_input("To Date", today)
-            local_path = st.text_input("📂 Folder Path", value="C:/TradingData/Bulk")
+            local_path = st.text_input("📁 Folder Path", value=default_parquet_dir)
             
             if st.button("🚀 Start Bulk Async Download", use_container_width=True):
                 if not selected_intervals:
@@ -889,8 +1005,8 @@ else:
                                     safe_sym = sym.replace(" ", "_")
                                     save_dir = os.path.join(local_path, safe_sym, sv_lbl)
                                     os.makedirs(save_dir, exist_ok=True)
-                                    full_path = os.path.join(save_dir, f"{safe_sym}_{sv_lbl}_{from_date}_{to_date}.csv")
-                                    df.to_csv(full_path, index=False)
+                                    full_path = os.path.join(save_dir, f"{safe_sym}_{sv_lbl}_{from_date}_{to_date}.parquet")
+                                    df.to_parquet(full_path, engine='pyarrow')
                                     log_download(selected_broker, sym, row['instrument_key'], sv_lbl, from_date, to_date, full_path)
                                     success_count += 1
                                 else:
@@ -1019,7 +1135,7 @@ else:
                             with r1: tf_start_opt = st.number_input("Start (Mins)", min_value=1, value=1, key="opt_start")
                             with r2: tf_end_opt = st.number_input("End (Mins)", min_value=1, value=15, key="opt_end")
                             
-                    local_path = st.text_input("📂 Save to Folder (Leave blank for ZIP)", placeholder="E.g. C:/TradingData/Options", key="opt_local_path")
+                    local_path = st.text_input("📂 Save to Folder (Leave blank for ZIP)", value=default_parquet_dir, key="opt_local_path")
                     
                     if st.button("🚀 Download & Extract Timeframes", use_container_width=True, type="primary"):
                         items = bulk_df.to_dict('records')
@@ -1088,11 +1204,11 @@ else:
                                             df_tf = resample_dataframe(df_1m, tf) if tf > 1 else df_1m
                                             tf_folder = os.path.join(base_folder, f"{tf}Min")
                                             os.makedirs(tf_folder, exist_ok=True)
-                                            f_path = os.path.join(tf_folder, f"{c['trading_symbol']}.csv")
-                                            df_tf.to_csv(f_path, index=False)
+                                            f_path = os.path.join(tf_folder, f"{c['trading_symbol']}.parquet")
+                                            df_tf.to_parquet(f_path, engine='pyarrow')
                                             log_download("Upstox", c['trading_symbol'], c['instrument_key'], f"{tf} Minute", opt_from_d, opt_to_d, f_path)
                                             saved_count += 1
-                                status.success(f"✅ Saved {saved_count} total CSV files across {len(tfs_opt)} timeframes inside {base_folder}")
+                                status.success(f"✅ Saved {saved_count} total Parquet files across {len(tfs_opt)} timeframes inside {base_folder}")
                             except Exception as e: st.error(f"Error saving locally: {e}")
                         else:
                             # ZIP Generation
@@ -1104,7 +1220,9 @@ else:
                                         df_1m['Timestamp'] = pd.to_datetime(df_1m['Timestamp'])
                                         for tf in tfs_opt:
                                             df_tf = resample_dataframe(df_1m, tf) if tf > 1 else df_1m
-                                            zf.writestr(f"{tf}Min/{c['trading_symbol']}.csv", df_tf.to_csv(index=False))
+                                            pq_buf = io.BytesIO()
+                                            df_tf.to_parquet(pq_buf, engine='pyarrow')
+                                            zf.writestr(f"{tf}Min/{c['trading_symbol']}.parquet", pq_buf.getvalue())
                             status.success("Done creating ZIP archive!")
                             st.download_button("Download Generated ZIP", buf.getvalue(), f"Options_{st.session_state.current_expiry}_Timeframes.zip", "application/zip")
 
@@ -1115,8 +1233,8 @@ else:
         
         col1, col2 = st.columns(2)
         with col1:
-            source_folder = st.text_input("📁 Source Folder (Contains 1-Min CSVs)", placeholder="C:/TradingData/Master")
-            dest_folder = st.text_input("📂 Destination Base Folder", placeholder="C:/TradingData/Converted")
+            source_folder = st.text_input("📁 Source Folder (Contains 1-Min CSV/Parquet)", value=default_parquet_dir)
+            dest_folder = st.text_input("📁 Destination Base Folder", value=default_parquet_dir)
         with col2:
             tf_mode_loc = st.radio("Timeframe Mode", ["Specific Timeframes", "Continuous Range"], key="loc_tf_mode", horizontal=True)
             if tf_mode_loc == "Specific Timeframes":
@@ -1139,9 +1257,9 @@ else:
                 csv_files = []
                 for root, dirs, files in os.walk(source_folder):
                     for file in files:
-                        if file.endswith('.csv'): csv_files.append(os.path.join(root, file))
+                        if file.endswith(('.csv', '.parquet')): csv_files.append(os.path.join(root, file))
                 
-                if not csv_files: st.warning("No CSV files found in the source directory.")
+                if not csv_files: st.warning("No CSV/Parquet files found in the source directory.")
                 else:
                     pbar = st.progress(0, text="0% - Starting Batch Conversion...")
                     status = st.empty()
@@ -1152,7 +1270,7 @@ else:
                         status.text(f"Resampling {file_name} ({i+1}/{len(csv_files)})...")
                         
                         try:
-                            df = pd.read_csv(file_path)
+                            df = pd.read_parquet(file_path) if file_path.endswith('.parquet') else pd.read_csv(file_path)
                             if 'Timestamp' in df.columns:
                                 df['Timestamp'] = pd.to_datetime(df['Timestamp'])
                                 
@@ -1162,11 +1280,12 @@ else:
                                     os.makedirs(tf_dir, exist_ok=True)
                                     
                                     # Try to rename neatly
-                                    out_name = file_name.replace("1Minute", f"{tf}Min").replace("1Min", f"{tf}Min")
-                                    if f"{tf}Min" not in out_name: out_name = f"{tf}Min_{file_name}"
+                                    out_name = file_name.replace("1Minute", f"{tf}Min").replace("1Min", f"{tf}Min").replace(".csv", ".parquet")
+                                    if f"{tf}Min" not in out_name: out_name = f"{tf}Min_{out_name}"
+                                    if not out_name.endswith('.parquet'): out_name += '.parquet'
                                         
                                     out_path = os.path.join(tf_dir, out_name)
-                                    df_resampled.to_csv(out_path, index=False)
+                                    df_resampled.to_parquet(out_path, engine='pyarrow')
                                     converted_count += 1
                         except Exception as e: st.toast(f"Failed {file_name}: {e}")
                         
@@ -1198,7 +1317,7 @@ else:
         st.title("🛠️ Backup & Recovery")
         st.subheader("1. 📦 Manual Backup (ZIP)")
         st.markdown("Create a complete ZIP backup of your **Database** + **Local Data Folder**.")
-        backup_root = st.text_input("📁 Root Data Folder to include (Optional)", placeholder="E.g. C:/TradingData")
+        backup_root = st.text_input("📁 Root Data Folder to include (Optional)", value=default_parquet_dir)
         
         if st.button("🗜️ Create Full Backup"):
             with st.spinner("Zipping files... This may take a while."):
@@ -1209,7 +1328,7 @@ else:
                         if backup_root and os.path.exists(backup_root):
                             for root, dirs, files in os.walk(backup_root):
                                 for file in files:
-                                    if file.endswith(".csv"):
+                                    if file.endswith((".csv", ".parquet")):
                                         file_path = os.path.join(root, file)
                                         rel_path = os.path.relpath(file_path, os.path.dirname(backup_root))
                                         zf.write(file_path, arcname=rel_path)
@@ -1223,7 +1342,7 @@ else:
         st.divider()
         st.subheader("2. 🔄 Restore Database")
         st.markdown("Rebuild your database index by scanning your local data folder.")
-        restore_path = st.text_input("📁 Select Data Root Folder to Scan", placeholder="E.g. C:/TradingData", key="restore_path_input")
+        restore_path = st.text_input("📁 Select Data Root Folder to Scan", value=default_parquet_dir, key="restore_path_input")
         if st.button("🔄 Start Recovery Scan"):
             if restore_path and os.path.exists(restore_path):
                 with st.spinner("Scanning files..."):
@@ -1269,9 +1388,11 @@ else:
             with col2:
                 st.subheader("Paths")
                 plot_dir = st.text_input("Plot Save Directory", value=existing.get("plot_dir", "./plots"))
+                parquet_data_dir = st.text_input("Parquet Data Directory", value=existing.get("parquet_data_dir", "C:/TradingData"), help="Default path for all data downloads and bulk operations.")
             
             if st.form_submit_button("Save Settings"):
                 os.makedirs(plot_dir, exist_ok=True)
+                os.makedirs(parquet_data_dir, exist_ok=True)
                 with sqlite3.connect(DB_FILE, timeout=10) as conn:
                     c = conn.cursor()
                     settings = {
@@ -1279,13 +1400,13 @@ else:
                         "slippage": slippage, 
                         "brokerage_margin": margin, 
                         "plot_dir": plot_dir, 
+                        "parquet_data_dir": parquet_data_dir,
                         "initial_capital": initial_capital
                     }
                     for k, v in settings.items():
                         c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (k, str(v)))
                     conn.commit()
                 st.success("Settings saved successfully!")
-
 
     elif app_mode == "🛠️ Strategy Builder":
         st.header("🛠️ No-Code Strategy Builder")
@@ -1436,7 +1557,9 @@ else:
             col2.write(f"Type: {ind['type']}")
             col3.write(f"Source: {ind.get('source', 'Close')}, Params: {ind.get('params', {})}")
             if col4.button("❌ Remove", key=f"rm_ind_{i}"):
-                st.session_state['indicators'].pop(i)
+                new_inds = st.session_state['indicators'].copy()
+                new_inds.pop(i)
+                st.session_state['indicators'] = new_inds
                 st.rerun()
         
         # --- INDICATOR LIBRARY ---
@@ -1496,7 +1619,8 @@ else:
                 "Linear Regression Slope", "R-Squared", 
                 "ATR-Normalized Angle", "Angle of Indicator",
                 "Supertrend", "Parabolic SAR", "ADX", "Stochastic Oscillator", 
-                "VWAP", "Keltner Channels", "Donchian Channels"
+                "VWAP", "Keltner Channels", "Donchian Channels",
+                "Hurst Exponent", "HMM Regime"
             ])
             ind_name = st.text_input("Indicator Name", value=f"Ind_{len(st.session_state['indicators'])+1}")
             
@@ -1517,6 +1641,11 @@ else:
             params = {}
             if ind_type in ["SMA", "EMA", "WMA", "ALMA", "RSI", "ATR", "Linear Regression Slope", "R-Squared", "ATR-Normalized Angle", "VWAP"]:
                 params['period'] = st.number_input("Period", value=14, min_value=1)
+            elif ind_type == "Hurst Exponent":
+                params['period'] = st.number_input("Rolling Window Period", value=100, min_value=100, help="Hurst computation needs at least 100 data points to be reliable.")
+            elif ind_type == "HMM Regime":
+                params['period'] = st.number_input("Rolling Window Period", value=100, min_value=10, help="Rolling window over which to fit the HMM.")
+                params['components'] = st.number_input("Number of States", value=2, min_value=2, max_value=5, help="Number of hidden states (e.g. 2 for Bull/Bear or Low-Vol/High-Vol).")
             elif ind_type == "Angle of Indicator":
                 params['period'] = st.number_input("Lookback Period (bars)", value=5, min_value=1,
                     help="Number of bars to compute the slope over. The slope is then normalized by ATR and converted to degrees.")
@@ -1552,7 +1681,9 @@ else:
                 if any(x['name'] == ind_name for x in st.session_state['indicators']):
                     st.error("Name already exists!")
                 else:
-                    st.session_state['indicators'].append({"name": ind_name, "type": ind_type, "source": source, "params": params})
+                    new_inds = st.session_state['indicators'].copy()
+                    new_inds.append({"name": ind_name, "type": ind_type, "source": source, "params": params})
+                    st.session_state['indicators'] = new_inds
                     st.rerun()
                     
         # --- STEP 2: ENTRY / EXIT LOGIC ---
@@ -1578,14 +1709,18 @@ else:
                     var2 = c4.selectbox("Var 2", variables, index=variables.index(rule['var2']) if rule['var2'] in variables else 0, key=f"{list_name}_v2var_{i}")
                     
                 if c5.button("❌", key=f"{list_name}_rm_{i}"):
-                    rule_list.pop(i)
+                    new_list = st.session_state[list_name].copy()
+                    new_list.pop(i)
+                    st.session_state[list_name] = new_list
                     st.rerun()
                 
                 # Update rule
                 rule.update({"logic": logic, "var1": var1, "operator": op, "var2": var2, "is_num": is_num})
                 
             if st.button(f"➕ Add Condition to {list_name}", key=f"add_{list_name}"):
-                rule_list.append({"logic": "AND" if len(rule_list) > 0 else "IF", "var1": "Close", "operator": ">", "var2": "Close", "is_num": False})
+                new_list = st.session_state[list_name].copy()
+                new_list.append({"logic": "AND" if len(new_list) > 0 else "IF", "var1": "Close", "operator": ">", "var2": "Close", "is_num": False})
+                st.session_state[list_name] = new_list
                 st.rerun()
 
         st.markdown("#### BUY Conditions")
@@ -1640,11 +1775,14 @@ else:
                 zc6.write("")
                 zone['tight_pct'] = 0
             if zc7.button("❌", key=f"rz_rm_{i}"):
-                st.session_state['range_zones'].pop(i)
+                new_rz = st.session_state['range_zones'].copy()
+                new_rz.pop(i)
+                st.session_state['range_zones'] = new_rz
                 st.rerun()
         
         if st.button("➕ Add Range Zone", key="add_range_zone"):
-            st.session_state['range_zones'].append({
+            new_rz = st.session_state['range_zones'].copy()
+            new_rz.append({
                 'indicator': available_vars[0] if available_vars else 'Close',
                 'min_val': -10.0,
                 'max_val': 10.0,
@@ -1652,6 +1790,7 @@ else:
                 'action': 'Normal Trading',
                 'tight_pct': 1.0
             })
+            st.session_state['range_zones'] = new_rz
             st.rerun()
         
         # --- STEP 3: RISK MANAGEMENT ---
@@ -1869,6 +2008,39 @@ else:
                     src_map[f"{raw_name}_upper"] = f"self.{name}_upper"
                     src_map[f"{raw_name}_mid"] = f"self.{name}_mid"
                     src_map[f"{raw_name}_lower"] = f"self.{name}_lower"
+                elif ind['type'] == "Hurst Exponent":
+                    code += f"        def get_hurst_{name}(series, window):\n"
+                    code += f"            import numpy as np\n"
+                    code += f"            import pandas as pd\n"
+                    code += f"            from hurst import compute_Hc\n"
+                    code += f"            def _calc(x):\n"
+                    code += f"                try:\n"
+                    code += f"                    H, c, data = compute_Hc(x, kind='price', simplified=True)\n"
+                    code += f"                    return H\n"
+                    code += f"                except:\n"
+                    code += f"                    return np.nan\n"
+                    code += f"            return pd.Series(series).rolling(int(window)).apply(_calc, raw=True).values\n"
+                    code += f"        self.{name} = self.I(get_hurst_{name}, {src}, self.{name}_period)\n"
+                elif ind['type'] == "HMM Regime":
+                    code += f"        def get_hmm_{name}(series, window, components):\n"
+                    code += f"            import numpy as np\n"
+                    code += f"            import pandas as pd\n"
+                    code += f"            from hmmlearn.hmm import GaussianHMM\n"
+                    code += f"            def _calc(x):\n"
+                    code += f"                try:\n"
+                    code += f"                    returns = np.diff(x) / x[:-1]\n"
+                    code += f"                    if len(returns) < components * 2: return np.nan\n"
+                    code += f"                    returns = np.where(np.isnan(returns), 0, returns).reshape(-1, 1)\n"
+                    code += f"                    model = GaussianHMM(n_components=int(components), covariance_type='diag', n_iter=50, random_state=42)\n"
+                    code += f"                    model.fit(returns)\n"
+                    code += f"                    state = model.predict(returns[-1:])\n"
+                    code += f"                    order = np.argsort(model.covars_.ravel())\n"
+                    code += f"                    mapped_state = np.where(order == state[0])[0][0]\n"
+                    code += f"                    return mapped_state\n"
+                    code += f"                except:\n"
+                    code += f"                    return np.nan\n"
+                    code += f"            return pd.Series(series).rolling(int(window)).apply(_calc, raw=True).values\n"
+                    code += f"        self.{name} = self.I(get_hmm_{name}, {src}, self.{name}_period, self.{name}_components)\n"
             
             # Trailing stop needs a tracking variable
             if rm_mode == "Trailing Stop Loss (%)" or has_zones:
@@ -2082,12 +2254,12 @@ else:
                 else:
                     with st.spinner("Calculating indicators and signals..."):
                         try:
-                            df = pd.read_csv(selected_file)
+                            df = pd.read_parquet(selected_file) if selected_file.endswith('.parquet') else pd.read_csv(selected_file)
                             if 'Timestamp' in df.columns:
                                 df['Timestamp'] = pd.to_datetime(df['Timestamp'])
                                 df.set_index('Timestamp', inplace=True)
                             
-                            namespace = {'Strategy': Strategy, 'crossover': crossover, 'ta': ta, 'pd': pd, 'np': np}
+                            namespace = {'Strategy': Strategy, 'crossover': crossover, 'ta': ta, 'pd': pd, 'np': np, 'pta': pta}
                             exec(code, namespace)
                             
                             strategy_class = None
@@ -2264,12 +2436,12 @@ else:
                         else:
                             with st.spinner("Running Backtest..."):
                                 try:
-                                    df = pd.read_csv(selected_file)
+                                    df = pd.read_parquet(selected_file) if selected_file.endswith('.parquet') else pd.read_csv(selected_file)
                                     if 'Timestamp' in df.columns:
                                         df['Timestamp'] = pd.to_datetime(df['Timestamp'])
                                         df.set_index('Timestamp', inplace=True)
                                     
-                                    namespace = {'Strategy': Strategy, 'crossover': crossover, 'ta': ta, 'pd': pd, 'np': np}
+                                    namespace = {'Strategy': Strategy, 'crossover': crossover, 'ta': ta, 'pd': pd, 'np': np, 'pta': pta}
                                     exec(code, namespace)
                                     
                                     strategy_class = None
@@ -2292,8 +2464,6 @@ else:
                                         
                                         marg = float(stng.get("brokerage_margin", 1.0))
                                         init_cash = float(stng.get("initial_capital", 100000))
-                                        plot_dir = stng.get("plot_dir", "./plots")
-                                        os.makedirs(plot_dir, exist_ok=True)
                                         
                                         bt = Backtest(df, strategy_class, cash=init_cash, commission=total_comm, margin=marg, finalize_trades=True)
                                         
@@ -2477,11 +2647,6 @@ else:
                                         stats_json = clean_stats.to_json()
                                         with sqlite3.connect(DB_FILE, timeout=10) as conn:
                                             c = conn.cursor()
-                                            # Ensure columns exist for older DBs
-                                            for col_def in ['full_stats TEXT', 'num_trades INTEGER DEFAULT 0', 'sharpe_ratio REAL DEFAULT 0', 'strategy_config TEXT']:
-                                                try: c.execute(f"ALTER TABLE backtests ADD COLUMN {col_def}")
-                                                except: pass
-                                            
                                             try:
                                                 ret_pct = round(float(stats['Return [%]']), 3) if 'Return [%]' in stats.index else 0.0
                                                 mdd_pct = round(float(stats['Max. Drawdown [%]']), 3) if 'Max. Drawdown [%]' in stats.index else 0.0
@@ -2503,10 +2668,10 @@ else:
                                     st.error(f"Error during backtest: {e}")
                                     import traceback
                                     st.code(traceback.format_exc(), language='text')
-                                
+
         elif bt_mode == "Folder Batch Mode":
-            st.info("Batch Mode: Run the active strategy across all .csv files in a selected directory.")
-            batch_folder = st.text_input("Enter Full Path to Folder containing .csv files")
+            st.info("Batch Mode: Run the active strategy across all .csv or .parquet files in a selected directory using Multi-Core Processing.")
+            batch_folder = st.text_input("Enter Full Path to Folder containing data files", value=default_parquet_dir)
             code = st.session_state.get('custom_strategy_code', "")
             
             if not code:
@@ -2520,11 +2685,15 @@ else:
                         st.error("Invalid folder path.")
                     else:
                         import glob
-                        csv_files = glob.glob(os.path.join(batch_folder, "**/*.csv"), recursive=True)
+                        csv_files = []
+                        for root, dirs, files in os.walk(batch_folder):
+                            for file in files:
+                                if file.endswith(('.csv', '.parquet')): csv_files.append(os.path.join(root, file))
+                        
                         if not csv_files:
-                            st.warning("No .csv files found in the directory.")
+                            st.warning("No .csv or .parquet files found in the directory.")
                         else:
-                            st.write(f"Found {len(csv_files)} files. Starting batch run...")
+                            st.write(f"Found {len(csv_files)} files. Starting multi-core batch run...")
                             progress_bar = st.progress(0, text="0% - Starting Batch Backtest...")
                             
                             with sqlite3.connect(DB_FILE, timeout=10) as conn:
@@ -2538,113 +2707,62 @@ else:
                             marg = float(stng.get("brokerage_margin", 1.0))
                             init_cash = float(stng.get("initial_capital", 100000))
                             
-                            namespace = {'Strategy': Strategy, 'crossover': crossover, 'ta': ta, 'pd': pd, 'np': np}
-                            try:
-                                exec(code, namespace)
-                                strategy_class = None
-                                for name, obj in namespace.items():
-                                    if isinstance(obj, type) and issubclass(obj, Strategy) and obj is not Strategy:
-                                        strategy_class = obj
-                                        break
-                                
-                                if not strategy_class:
-                                    st.error("Could not find a valid Strategy class.")
-                                else:
-                                    batch_results = []
-                                    failed_files = []
-                                    for idx, file_path in enumerate(csv_files):
-                                        try:
-                                            df = pd.read_csv(file_path)
-                                            if df.empty or len(df) < 50:
-                                                failed_files.append({'File': os.path.basename(file_path), 'Error': f'Too few rows ({len(df)})'})
-                                                continue
-                                            if 'Timestamp' in df.columns:
-                                                df['Timestamp'] = pd.to_datetime(df['Timestamp'])
-                                                df.set_index('Timestamp', inplace=True)
-                                            
-                                            bt = Backtest(df, strategy_class, cash=init_cash, commission=comm, margin=marg, finalize_trades=True)
-                                            stats = bt.run()
-                                            
-                                            def safe_stat(key, default=0):
-                                                try:
-                                                    v = stats[key]
-                                                    return round(float(v), 3) if not pd.isna(v) else default
-                                                except: return default
-                                            
-                                            strat_instance = stats.get('_strategy', None)
-                                            divs = getattr(strat_instance, 'dividends_earned', 0.0) if strat_instance else 0.0
-                                            rights_prem = getattr(strat_instance, 'rights_premium_earned', 0.0) if strat_instance else 0.0
-                                            
-                                            if 'Return (Ann.) [%]' not in stats or pd.isna(stats['Return (Ann.) [%]']):
-                                                duration_days = (stats['End'] - stats['Start']).days if ('End' in stats and 'Start' in stats) else 0
-                                                if duration_days > 0:
-                                                    ann_ret = ((stats['Return [%]'] / 100 + 1) ** (365.25 / duration_days) - 1) * 100
-                                                    stats['Return (Ann.) [%]'] = ann_ret
-                                                    
-                                            res = {
-                                                'File': os.path.basename(file_path),
-                                                'Initial Capital [₹]': init_cash,
-                                                'Return [%]': safe_stat('Return [%]'),
-                                                'Return (Ann.) [%]': safe_stat('Return (Ann.) [%]'),
-                                                'Max. Drawdown [%]': safe_stat('Max. Drawdown [%]'),
-                                                'Win Rate [%]': safe_stat('Win Rate [%]'),
-                                                'Total Trades': int(safe_stat('# Trades')),
-                                                'Sharpe Ratio': safe_stat('Sharpe Ratio'),
-                                                'Sortino Ratio': safe_stat('Sortino Ratio'),
-                                                'Calmar Ratio': safe_stat('Calmar Ratio'),
-                                                'Dividends Earned [₹]': divs,
-                                                'Rights Premium Earned [₹]': rights_prem,
-                                                'Equity Final [₹]': safe_stat('Equity Final [$]')
-                                            }
-                                            batch_results.append(res)
-                                        except Exception as file_e:
-                                            failed_files.append({'File': os.path.basename(file_path), 'Error': str(file_e)[:100]})
-                                            
-                                        pct = (idx + 1) / len(csv_files)
-                                        progress_bar.progress(pct, text=f"Batch Backtest: {int(pct * 100)}% ({idx+1}/{len(csv_files)})")
-                                        
-                                    if batch_results:
-                                        batch_df = pd.DataFrame(batch_results)
-                                        st.success(f"Batch completed: {len(batch_results)} successful, {len(failed_files)} failed.")
-                                        
-                                        # Summary row
-                                        summary = batch_df.select_dtypes(include=['float', 'int']).mean().round(3).to_frame().T
-                                        summary['File'] = '📊 AVERAGE'
-                                        batch_df = pd.concat([batch_df, summary], ignore_index=True)
-                                        
-                                        st.dataframe(batch_df, use_container_width=True)
-                                        
-                                        # Save Batch to DB
-                                        strat_label = st.session_state.get('strategy_label', 'Batch Custom')
-                                        strat_config_json = json.dumps({'indicators': st.session_state.get('indicators', [])})
-                                        with sqlite3.connect(DB_FILE, timeout=10) as conn:
-                                            c = conn.cursor()
-                                            for res in batch_results[:-1]: # exclude average row from DB
-                                                c.execute('''INSERT INTO backtests 
-                                                    (strategy_name, symbol, timeframe, start_date, end_date, parameters, return_pct, max_drawdown_pct, win_rate_pct, num_trades, sharpe_ratio, plot_file, full_stats, strategy_config)
-                                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
-                                                    (strat_label, res['File'], 'Batch', '', '', "{}", 
-                                                     res['Return [%]'], res['Max. Drawdown [%]'], res['Win Rate [%]'], 
-                                                     res['Total Trades'], res['Sharpe Ratio'], "none", "{}", strat_config_json))
-                                            conn.commit()
-                                        
-                                        st.download_button(
-                                            label="📥 Export Batch Results to CSV",
-                                            data=batch_df.to_csv(index=False).encode('utf-8'),
-                                            file_name="batch_backtest_results.csv",
-                                            mime="text/csv",
-                                            use_container_width=True
-                                        )
-                                        
-                                        if failed_files:
-                                            with st.expander(f"⚠️ {len(failed_files)} Files Failed — Click to see details"):
-                                                st.dataframe(pd.DataFrame(failed_files), use_container_width=True)
+                            args_list = [(f, code, init_cash, comm, marg, []) for f in csv_files]
+                            batch_results = []
+                            failed_files = []
+                            
+                            with concurrent.futures.ProcessPoolExecutor() as executor:
+                                futures = [executor.submit(_backtest_worker, arg) for arg in args_list]
+                                for idx, future in enumerate(concurrent.futures.as_completed(futures)):
+                                    res = future.result()
+                                    if 'Error' in res:
+                                        failed_files.append(res)
                                     else:
-                                        st.error("Batch completed but no files were successfully backtested.")
-                                        if failed_files:
-                                            st.dataframe(pd.DataFrame(failed_files), use_container_width=True)
-                            except Exception as e:
-                                st.error(f"Error compiling strategy for batch: {e}")
+                                        batch_results.append(res['Stats'])
+                                        
+                                    pct = (idx + 1) / len(csv_files)
+                                    progress_bar.progress(pct, text=f"Batch Backtest: {int(pct * 100)}% ({idx+1}/{len(csv_files)})")
+                                        
+                            if batch_results:
+                                batch_df = pd.DataFrame(batch_results)
+                                st.success(f"Batch completed: {len(batch_results)} successful, {len(failed_files)} failed.")
+                                
+                                # Summary row
+                                summary = batch_df.select_dtypes(include=['float', 'int']).mean().round(3).to_frame().T
+                                summary['File'] = '📊 AVERAGE'
+                                batch_df = pd.concat([batch_df, summary], ignore_index=True)
+                                
+                                st.dataframe(batch_df, use_container_width=True)
+                                
+                                # Save Batch to DB
+                                strat_label = st.session_state.get('strategy_label', 'Batch Custom')
+                                strat_config_json = json.dumps({'indicators': st.session_state.get('indicators', [])})
+                                with sqlite3.connect(DB_FILE, timeout=10) as conn:
+                                    c = conn.cursor()
+                                    for res in batch_results[:-1]: # exclude average row from DB
+                                        c.execute('''INSERT INTO backtests 
+                                            (strategy_name, symbol, timeframe, start_date, end_date, parameters, return_pct, max_drawdown_pct, win_rate_pct, num_trades, sharpe_ratio, plot_file, full_stats, strategy_config)
+                                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
+                                            (strat_label, res['File'], 'Batch', '', '', "{}", 
+                                             res['Return [%]'], res['Max. Drawdown [%]'], res['Win Rate [%]'], 
+                                             res['Total Trades'], res['Sharpe Ratio'], "none", "{}", strat_config_json))
+                                    conn.commit()
+                                
+                                st.download_button(
+                                    label="📥 Export Batch Results to CSV",
+                                    data=batch_df.to_csv(index=False).encode('utf-8'),
+                                    file_name="batch_backtest_results.csv",
+                                    mime="text/csv",
+                                    use_container_width=True
+                                )
+                                
+                                if failed_files:
+                                    with st.expander(f"⚠️ {len(failed_files)} Files Failed — Click to see details"):
+                                        st.dataframe(pd.DataFrame(failed_files), use_container_width=True)
+                            else:
+                                st.error("Batch completed but no files were successfully backtested.")
+                                if failed_files:
+                                    st.dataframe(pd.DataFrame(failed_files), use_container_width=True)
         
         # --- USAGE GUIDE ---
         st.markdown("---")
@@ -2723,13 +2841,7 @@ Your strategies are **saved permanently** on the server and survive app reloads:
     elif app_mode == "📊 Backtest Results":
         st.header("📊 Backtest Results Database")
         with sqlite3.connect(DB_FILE, timeout=10) as conn:
-            # Ensure columns exist for older DBs
             c = conn.cursor()
-            for col_def in ['full_stats TEXT', 'num_trades INTEGER DEFAULT 0', 'sharpe_ratio REAL DEFAULT 0', 'strategy_config TEXT']:
-                try: c.execute(f"ALTER TABLE backtests ADD COLUMN {col_def}")
-                except: pass
-            conn.commit()
-            
             try: 
                 df = pd.read_sql_query("SELECT id, strategy_name, symbol, timeframe, start_date, end_date, return_pct, max_drawdown_pct, win_rate_pct, num_trades, sharpe_ratio, created_at FROM backtests ORDER BY created_at DESC", conn)
                 
@@ -2836,12 +2948,22 @@ Your strategies are **saved permanently** on the server and survive app reloads:
         elif history.empty:
             st.warning("No downloaded data found. Please download data first.")
         else:
+            ml_mode = st.radio("Analysis Mode", ["Single Dataset", "Bulk Folder Aggregation"], horizontal=True)
+            files_to_process = []
+            
             col1, col2, col3 = st.columns([2, 1, 1])
             with col1:
-                options = history['file_path'].tolist()
-                labels = [f"{row.symbol} | {row.interval} | {row.start_date} to {row.end_date}" for _, row in history.iterrows()]
-                selected_idx = st.selectbox("Select Dataset to Mine for Patterns", range(len(options)), format_func=lambda x: labels[x])
-                selected_file = options[selected_idx]
+                if ml_mode == "Single Dataset":
+                    options = history['file_path'].tolist()
+                    labels = [f"{row.symbol} | {row.interval} | {row.start_date} to {row.end_date}" for _, row in history.iterrows()]
+                    selected_idx = st.selectbox("Select Dataset to Mine for Patterns", range(len(options)), format_func=lambda x: labels[x])
+                    files_to_process = [options[selected_idx]]
+                else:
+                    batch_folder = st.text_input("Folder containing multiple datasets (Parquet/CSV)", value=default_parquet_dir)
+                    if batch_folder and os.path.exists(batch_folder):
+                        for r, d, f in os.walk(batch_folder):
+                            for file in f:
+                                if file.endswith(('.csv', '.parquet')): files_to_process.append(os.path.join(r, file))
             
             with col2:
                 target_metric = st.selectbox("Define 'Success'", ["Win (Return > 0)", "High R:R (Return > 1%)"])
@@ -2849,144 +2971,160 @@ Your strategies are **saved permanently** on the server and survive app reloads:
             with col3:
                 min_trades_filter = st.number_input("Min Trades Filter", min_value=5, value=20, help="Minimum number of trades required to build the ML Model safely.")
                 
-            if st.button("🔍 Mine Strategy for AI Patterns", use_container_width=True, type="primary"):
-                with st.spinner("Running deep backtest and extracting indicator features..."):
+            # Select ML Features
+            available_vars = ["Close", "Open", "High", "Low", "Volume"]
+            for x in st.session_state.get('indicators', []):
+                if x['type'] == "MACD": available_vars.extend([f"{x['name']}_line", f"{x['name']}_signal"])
+                elif x['type'] == "Bollinger Bands": available_vars.extend([f"{x['name']}_high", f"{x['name']}_low"])
+                else: available_vars.append(x['name'])
+            
+            selected_features = st.multiselect("Select Indicators to feed the AI", available_vars, default=available_vars)
+
+            if files_to_process and st.button("🔍 Mine Strategy for AI Patterns", use_container_width=True, type="primary"):
+                with st.spinner("Running deep backtest and extracting indicator features using Multi-Core Processing..."):
                     try:
-                        # 1. Run the Backtest to get trades
-                        df = pd.read_csv(selected_file)
-                        if 'Timestamp' in df.columns:
-                            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
-                            df.set_index('Timestamp', inplace=True)
+                        all_trades = []
+                        with sqlite3.connect(DB_FILE, timeout=10) as conn:
+                            c = conn.cursor()
+                            c.execute("SELECT key, value FROM settings")
+                            stng = dict(c.fetchall())
                         
-                        namespace = {'Strategy': Strategy, 'crossover': crossover, 'ta': ta, 'pd': pd, 'np': np}
-                        exec(code, namespace)
+                        comm = float(stng.get("brokerage_commission", 0.0003)) + float(stng.get("slippage", 0.0002))
+                        marg = float(stng.get("brokerage_margin", 1.0))
+                        init_cash = float(stng.get("initial_capital", 100000))
+
+                        args_list = [(f, code, init_cash, comm, marg, selected_features) for f in files_to_process]
                         
-                        strategy_class = None
-                        for name, obj in namespace.items():
-                            if isinstance(obj, type) and issubclass(obj, Strategy) and obj is not Strategy:
-                                strategy_class = obj
-                                break
+                        # Parallel Feature Extraction
+                        with concurrent.futures.ProcessPoolExecutor() as executor:
+                            futures = [executor.submit(_backtest_worker, arg) for arg in args_list]
+                            for future in concurrent.futures.as_completed(futures):
+                                res = future.result()
+                                if 'Trades' in res and not res['Trades'].empty:
+                                    all_trades.append(res['Trades'])
                         
-                        bt = Backtest(df, strategy_class, cash=100000, finalize_trades=True)
-                        stats = bt.run()
-                        trades = stats['_trades'].copy()
-                        strat_instance = stats['_strategy']
-                        
-                        if len(trades) < min_trades_filter:
-                            st.error(f"Not enough trades ({len(trades)}) to train a machine learning model reliably. Try testing on a longer dataset or adjusting your strategy rules.")
+                        if not all_trades: st.error("No trades executed across any datasets.")
                         else:
-                            # 2. Extract Feature Matrix (X) at Entry Bars
-                            st.info(f"Extracting features from {len(trades)} trades...")
-                            feature_cols = []
+                            trades_df = pd.concat(all_trades, ignore_index=True)
                             
-                            # Give ML access to everything we've built in the builder
-                            available_vars = ["Close", "Open", "High", "Low", "Volume"]
-                            for x in st.session_state.get('indicators', []):
-                                if x['type'] == "MACD": available_vars.extend([f"{x['name']}_line", f"{x['name']}_signal"])
-                                elif x['type'] == "Bollinger Bands": available_vars.extend([f"{x['name']}_high", f"{x['name']}_low"])
-                                else: available_vars.append(x['name'])
-                                
-                            for var in available_vars:
-                                if hasattr(strat_instance, var):
-                                    arr = getattr(strat_instance, var)
-                                    if isinstance(arr, (np.ndarray, pd.Series)) or hasattr(arr, '__len__'):
-                                        feature_name = f'Entry_{var}'
-                                        feature_cols.append(feature_name)
-                                        trades[feature_name] = [arr[i] if i < len(arr) else np.nan for i in trades['EntryBar']]
-                            
-                            # Drop NaNs safely to prevent XGBoost/Sklearn crashing
-                            ml_df = trades.dropna(subset=feature_cols).copy()
-                            X = ml_df[feature_cols]
-                            
-                            # 3. Define Target (y)
-                            if target_metric == "Win (Return > 0)":
-                                y = (ml_df['ReturnPct'] > 0).astype(int)
+                            if len(trades_df) < min_trades_filter:
+                                st.error(f"Not enough trades ({len(trades_df)}) to train a machine learning model reliably. Try testing on a longer dataset or adjusting your strategy rules.")
                             else:
-                                y = (ml_df['ReturnPct'] > 0.01).astype(int)  # 0.01 is 1.0%
-                            
-                            
-                            win_rate = y.mean() * 100
-                            st.write(f"**Baseline Probability of Success:** {win_rate:.1f}%")
+                                # 2. Extract Feature Matrix (X) at Entry Bars
+                                st.info(f"Successfully aggregated {len(trades_df)} historical trades for Machine Learning.")
+                                feature_cols = [f"Entry_{var}" for var in selected_features]
+                                
+                                # Drop NaNs safely to prevent XGBoost/Sklearn crashing
+                                ml_df = trades_df.dropna(subset=feature_cols).copy()
+                                X = ml_df[feature_cols]
+                                
+                                # AI Sanitize: Fix XGBoost Name Crashes ([, ], <, >)
+                                X.columns = [re.sub(r'[\[\]<>]', '_', col) for col in X.columns]
+                                
+                                # 3. Define Target (y)
+                                if target_metric == "Win (Return > 0)":
+                                    y = (ml_df['Return [%]'] > 0).astype(int)
+                                else:
+                                    y = (ml_df['Return [%]'] > 1.0).astype(int)  # 1.0%
+                                
+                                win_rate = y.mean() * 100
+                                st.write(f"**Baseline Probability of Success:** {win_rate:.1f}%")
 
-                            # 4. Train XGBoost for Feature Importance
-                            import xgboost as xgb
-                            from sklearn.tree import DecisionTreeClassifier, export_text
-                            
-                            # AI Core 1: Gradient Boosting setup
-                            model_xgb = xgb.XGBClassifier(n_estimators=100, max_depth=4, learning_rate=0.1, random_state=42)
-                            model_xgb.fit(X, y)
-                            
-                            importances = model_xgb.feature_importances_
-                            feat_imp_df = pd.DataFrame({'Feature': feature_cols, 'Importance': importances}).sort_values('Importance', ascending=True)
-                            feat_imp_df = feat_imp_df[feat_imp_df['Importance'] > 0.01] # Filter noise out
-                            
-                            st.subheader("📊 Which Indicators Matter Most?")
-                            fig = go.Figure(go.Bar(
-                                x=feat_imp_df['Importance'],
-                                y=feat_imp_df['Feature'].str.replace('Entry_', ''),
-                                orientation='h',
-                                marker=dict(color='#26a69a')
-                            ))
-                            fig.update_layout(title="XGBoost Feature Importance", template="plotly_dark", height=400, margin=dict(l=20, r=20, t=40, b=20))
-                            st.plotly_chart(fig, use_container_width=True)
-                            
-                            # 5. Train Decision Tree to extract human-readable Rules
-                            st.subheader("📜 AI-Discovered High Probability Rules")
-                            st.markdown("The AI has built a decision tree to find specific indicator ranges that dramatically increase your win rate. **Consider adding these to your Strategy Builder Range Zones!**")
-                            
-                            # We use a shallow tree to keep rules understandable. A deep tree overfits terribly in trading.
-                            dt = DecisionTreeClassifier(max_depth=3, min_samples_leaf=max(5, int(len(ml_df)*0.05)), random_state=42)
-                            dt.fit(X, y)
-                            
-                            tree_rules = export_text(dt, feature_names=[f.replace('Entry_', '') for f in feature_cols])
-                            
-                            # Pretty print the tree rules
-                            with st.expander("View Raw Decision Tree Logic", expanded=False):
-                                st.code(tree_rules, language="text")
-                            
-                            # Extract specific high-probability nodes manually
-                            from sklearn.tree import _tree
-                            
-                            def get_high_prob_rules(tree, feature_names):
-                                tree_ = tree.tree_
-                                feature_name = [
-                                    feature_names[i] if i != _tree.TREE_UNDEFINED else "undefined!"
-                                    for i in tree_.feature
-                                ]
+                                # 4. Train XGBoost for Feature Importance
+                                # AI Core 1: Gradient Boosting setup
+                                model_xgb = xgb.XGBClassifier(n_estimators=100, max_depth=4, learning_rate=0.1, random_state=42)
+                                model_xgb.fit(X, y)
                                 
-                                paths = []
-                                path = []
+                                importances = model_xgb.feature_importances_
+                                feat_imp_df = pd.DataFrame({'Feature': X.columns, 'Importance': importances}).sort_values('Importance', ascending=True)
+                                feat_imp_df = feat_imp_df[feat_imp_df['Importance'] > 0.01] # Filter noise out
                                 
-                                def recurse(node, path, paths):
-                                    if tree_.feature[node] != _tree.TREE_UNDEFINED:
-                                        name = feature_name[node]
-                                        threshold = tree_.threshold[node]
-                                        p1, p2 = list(path), list(path)
-                                        p1.append(f"{name} <= {threshold:.2f}")
-                                        recurse(tree_.children_left[node], p1, paths)
-                                        p2.append(f"{name} > {threshold:.2f}")
-                                        recurse(tree_.children_right[node], p2, paths)
-                                    else:
-                                        # Leaf node
-                                        samples = tree_.n_node_samples[node]
-                                        values = tree_.value[node][0]
-                                        prob_win = values[1] / sum(values) if len(values) > 1 else 0
-                                        # To be considered a "Good Rule", it must beat the baseline win-rate by 10%
-                                        if prob_win > (y.mean() * 1.1) and samples >= 5: 
-                                            paths.append({"rule": " AND ".join(path), "prob": prob_win * 100, "samples": samples})
+                                st.subheader("📊 Which Indicators Matter Most?")
+                                fig = go.Figure(go.Bar(
+                                    x=feat_imp_df['Importance'],
+                                    y=feat_imp_df['Feature'].str.replace('Entry_', ''),
+                                    orientation='h',
+                                    marker=dict(color='#26a69a')
+                                ))
+                                fig.update_layout(title="XGBoost Feature Importance", template="plotly_dark", height=400, margin=dict(l=20, r=20, t=40, b=20))
+                                st.plotly_chart(fig, use_container_width=True)
                                 
-                                recurse(0, path, paths)
-                                return sorted(paths, key=lambda x: x['prob'], reverse=True)
+                                # 5. Train Decision Tree to extract human-readable Rules
+                                st.subheader("📜 AI-Discovered High Probability Rules")
+                                st.markdown("The AI has built a decision tree to find specific indicator ranges that dramatically increase your win rate. **Consider adding these to your Strategy Builder Range Zones!**")
+                                
+                                # We use a shallow tree to keep rules understandable. A deep tree overfits terribly in trading.
+                                dt = DecisionTreeClassifier(max_depth=3, min_samples_leaf=max(5, int(len(ml_df)*0.05)), random_state=42)
+                                dt.fit(X, y)
+                                
+                                tree_rules = export_text(dt, feature_names=[f.replace('Entry_', '') for f in X.columns])
+                                
+                                # Pretty print the tree rules
+                                with st.expander("View Raw Decision Tree Logic", expanded=False):
+                                    st.code(tree_rules, language="text")
+                                
+                                # Extract specific high-probability nodes manually
+                                def get_high_prob_rules(tree, feature_names):
+                                    tree_ = tree.tree_
+                                    feature_name = [
+                                        feature_names[i] if i != _tree.TREE_UNDEFINED else "undefined!"
+                                        for i in tree_.feature
+                                    ]
+                                    
+                                    paths = []
+                                    path = []
+                                    
+                                    def recurse(node, path, paths):
+                                        if tree_.feature[node] != _tree.TREE_UNDEFINED:
+                                            name = feature_name[node]
+                                            threshold = tree_.threshold[node]
+                                            p1, p2 = list(path), list(path)
+                                            p1.append(f"{name} <= {threshold:.2f}")
+                                            recurse(tree_.children_left[node], p1, paths)
+                                            p2.append(f"{name} > {threshold:.2f}")
+                                            recurse(tree_.children_right[node], p2, paths)
+                                        else:
+                                            # Leaf node
+                                            samples = tree_.n_node_samples[node]
+                                            values = tree_.value[node][0]
+                                            total_samples = sum(values)
+                                            prob_win = values[1] / total_samples if total_samples > 0 else 0
+                                            # To be considered a "Good Rule", it must beat the baseline win-rate by 10%
+                                            if prob_win > (y.mean() * 1.1) and samples >= 5: 
+                                                paths.append({"rule": " AND ".join(path), "prob": prob_win * 100, "samples": samples})
+                                    
+                                    recurse(0, path, paths)
+                                    return sorted(paths, key=lambda x: x['prob'], reverse=True)
 
-                            best_rules = get_high_prob_rules(dt, [f.replace('Entry_', '') for f in feature_cols])
-                            
-                            if best_rules:
-                                for i, r in enumerate(best_rules):
-                                    st.success(f"**Pattern {i+1}:** Win Rate **{r['prob']:.1f}%** (Found in {r['samples']} trades)\n\n👉 **IF** {r['rule']}")
-                            else:
-                                st.info("The AI couldn't find any simple indicator combinations that significantly beat your baseline win rate. The strategy might be highly dependent on price action rather than these specific indicators.")
+                                best_rules = get_high_prob_rules(dt, [f.replace('Entry_', '') for f in X.columns])
+                                
+                                if best_rules:
+                                    for i, r in enumerate(best_rules):
+                                        st.success(f"**Pattern {i+1}:** Win Rate **{r['prob']:.1f}%** (Found in {r['samples']} trades)\n\n👉 **IF** {r['rule']}")
+                                    st.session_state['last_ml_rules'] = best_rules
+                                    st.session_state['last_ml_target'] = target_metric
+                                else:
+                                    st.info("The AI couldn't find any simple indicator combinations that significantly beat your baseline win rate. The strategy might be highly dependent on price action rather than these specific indicators.")
 
                     except Exception as e:
                         st.error(f"Error during ML analysis: {e}")
                         import traceback
                         st.code(traceback.format_exc(), language="text")
+                        
+            # Persistent Save Button
+            if 'last_ml_rules' in st.session_state and st.session_state['last_ml_rules']:
+                st.divider()
+                if st.button("💾 Save Discovered Patterns to Database"):
+                    try:
+                        with sqlite3.connect(DB_FILE) as conn:
+                            strat_label = st.session_state.get('strategy_label', 'Custom')
+                            for r in st.session_state['last_ml_rules']:
+                                conn.execute('''INSERT INTO ml_patterns 
+                                    (strategy_name, target_metric, dataset_path, pattern_rules, win_rate, samples)
+                                    VALUES (?, ?, ?, ?, ?, ?)''', 
+                                    (strat_label, st.session_state['last_ml_target'], "Bulk", r['rule'], r['prob'], r['samples']))
+                            conn.commit()
+                        st.success("Patterns saved successfully! They can be accessed by AI agents in the future.")
+                        st.session_state['last_ml_rules'] = None # Clear after saving
+                        st.rerun()
+                    except Exception as e: st.error(f"Failed to save to DB: {e}")
