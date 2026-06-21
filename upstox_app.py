@@ -1266,6 +1266,7 @@ else:
                             st.session_state['sl_pct'] = rm.get('sl_pct', 2.0)
                             st.session_state['tp_pct'] = rm.get('tp_pct', 5.0)
                             st.session_state['trail_pct'] = rm.get('trail_pct', 2.0)
+                            st.session_state['strat_dir'] = rm.get('strat_dir', 'Long Only (Default)')
                         st.success(f"Loaded {selected_strat} successfully!")
                         st.rerun()
                     except Exception as e:
@@ -1289,6 +1290,7 @@ else:
                     st.session_state['sl_pct'] = rm.get('sl_pct', 2.0)
                     st.session_state['tp_pct'] = rm.get('tp_pct', 5.0)
                     st.session_state['trail_pct'] = rm.get('trail_pct', 2.0)
+                    st.session_state['strat_dir'] = rm.get('strat_dir', 'Long Only (Default)')
                     st.success("Strategy loaded successfully!")
                     st.rerun()
                 except Exception as e:
@@ -1309,7 +1311,8 @@ else:
                             "mode": st.session_state.get('rm_mode', 'None (Use Sell Rules Only)'),
                             "sl_pct": st.session_state.get('sl_pct', 2.0),
                             "tp_pct": st.session_state.get('tp_pct', 5.0),
-                            "trail_pct": st.session_state.get('trail_pct', 2.0)
+                            "trail_pct": st.session_state.get('trail_pct', 2.0),
+                            "strat_dir": st.session_state.get('strat_dir', 'Long Only (Default)')
                         }
                     }
                     filename = f"{save_name}.json" if not save_name.endswith('.json') else save_name
@@ -1344,7 +1347,8 @@ else:
                     "mode": st.session_state.get('rm_mode', 'None (Use Sell Rules Only)'),
                     "sl_pct": st.session_state.get('sl_pct', 2.0),
                     "tp_pct": st.session_state.get('tp_pct', 5.0),
-                    "trail_pct": st.session_state.get('trail_pct', 2.0)
+                    "trail_pct": st.session_state.get('trail_pct', 2.0),
+                    "strat_dir": st.session_state.get('strat_dir', 'Long Only (Default)')
                 }
             }
             st.download_button(
@@ -1588,6 +1592,13 @@ else:
         # --- STEP 3: RISK MANAGEMENT ---
         st.subheader("Step 3: Risk Management (Optional)")
         
+        # Strategy Direction
+        strat_dir = st.radio("Strategy Direction", [
+            "Long Only (Default)",
+            "Short Only"
+        ], horizontal=True, help="Indian markets typically don't allow short selling of equity stocks in delivery. Select 'Long Only' for stocks, or 'Short Only' for Intraday/F&O.")
+        st.session_state['strat_dir'] = strat_dir
+        
         # Position Sizing
         pos_size_type = st.radio("Position Sizing", [
             "Compound 100% Equity (Default)",
@@ -1788,7 +1799,10 @@ else:
             
             # Trailing stop needs a tracking variable
             if rm_mode == "Trailing Stop Loss (%)" or has_zones:
-                code += "        self._highest_since_entry = 0\n"
+                if strat_dir == "Short Only":
+                    code += "        self._lowest_since_entry = float('inf')\n"
+                else:
+                    code += "        self._highest_since_entry = 0\n"
             
             code += "\n    def next(self):\n"
             code += "        if hasattr(self.data, 'Dividend') and getattr(self, '_prev_position_size', 0) > 0:\n"
@@ -1887,19 +1901,35 @@ else:
 
                 if rm_mode == "Static % Stop Loss / Take Profit" and (sl_pct > 0 or tp_pct > 0):
                     if sl_pct > 0:
-                        code += f"                sl = self.data.Close[-1] * (1 - {sl_pct / 100})\n"
+                        if strat_dir == "Short Only":
+                            code += f"                sl = self.data.Close[-1] * (1 + {sl_pct / 100})\n"
+                        else:
+                            code += f"                sl = self.data.Close[-1] * (1 - {sl_pct / 100})\n"
                     else:
                         code += f"                sl = None\n"
                     if tp_pct > 0:
-                        code += f"                tp = self.data.Close[-1] * (1 + {tp_pct / 100})\n"
+                        if strat_dir == "Short Only":
+                            code += f"                tp = self.data.Close[-1] * (1 - {tp_pct / 100})\n"
+                        else:
+                            code += f"                tp = self.data.Close[-1] * (1 + {tp_pct / 100})\n"
                     else:
                         code += f"                tp = None\n"
-                    code += f"                self.buy({size_arg}, sl=sl, tp=tp)\n"
+                    
+                    if strat_dir == "Short Only":
+                        code += f"                self.sell({size_arg}, sl=sl, tp=tp)\n"
+                    else:
+                        code += f"                self.buy({size_arg}, sl=sl, tp=tp)\n"
                 else:
-                    code += f"                self.buy({size_arg})\n"
+                    if strat_dir == "Short Only":
+                        code += f"                self.sell({size_arg})\n"
+                    else:
+                        code += f"                self.buy({size_arg})\n"
                 
                 if rm_mode == "Trailing Stop Loss (%)" or has_zones:
-                    code += f"                self._highest_since_entry = self.data.Close[-1]\n"
+                    if strat_dir == "Short Only":
+                        code += f"                self._lowest_since_entry = self.data.Close[-1]\n"
+                    else:
+                        code += f"                self._highest_since_entry = self.data.Close[-1]\n"
             else:
                 code += "            pass\n"
             
@@ -1912,17 +1942,31 @@ else:
             if rm_mode == "Trailing Stop Loss (%)":
                 has_any_exit = True
                 code += "            # Trailing stop logic\n"
-                code += "            if self.data.Close[-1] > self._highest_since_entry:\n"
-                code += "                self._highest_since_entry = self.data.Close[-1]\n"
-                # If range zones can tighten the stop, use the tighter value
+                if strat_dir == "Short Only":
+                    code += "            if self.data.Close[-1] < self._lowest_since_entry:\n"
+                    code += "                self._lowest_since_entry = self.data.Close[-1]\n"
+                else:
+                    code += "            if self.data.Close[-1] > self._highest_since_entry:\n"
+                    code += "                self._highest_since_entry = self.data.Close[-1]\n"
+                
                 if has_zones:
                     code += f"            _eff_trail = {trail_pct / 100}\n"
                     code += f"            if _zone_tight_sl > 0:\n"
                     code += f"                _eff_trail = min(_eff_trail, _zone_tight_sl / 100)\n"
-                    code += f"            trail_stop = self._highest_since_entry * (1 - _eff_trail)\n"
+                    if strat_dir == "Short Only":
+                        code += f"            trail_stop = self._lowest_since_entry * (1 + _eff_trail)\n"
+                    else:
+                        code += f"            trail_stop = self._highest_since_entry * (1 - _eff_trail)\n"
                 else:
-                    code += f"            trail_stop = self._highest_since_entry * (1 - {trail_pct / 100})\n"
-                code += "            if self.data.Close[-1] <= trail_stop:\n"
+                    if strat_dir == "Short Only":
+                        code += f"            trail_stop = self._lowest_since_entry * (1 + {trail_pct / 100})\n"
+                    else:
+                        code += f"            trail_stop = self._highest_since_entry * (1 - {trail_pct / 100})\n"
+                
+                if strat_dir == "Short Only":
+                    code += "            if self.data.Close[-1] >= trail_stop:\n"
+                else:
+                    code += "            if self.data.Close[-1] <= trail_stop:\n"
                 code += "                self.position.close()\n"
                 code += "                return\n"
             
@@ -1931,10 +1975,16 @@ else:
                 has_any_exit = True
                 code += "            # Range zone: tighten trailing stop\n"
                 code += "            if _zone_tight_sl > 0:\n"
-                code += "                if self.data.Close[-1] > self._highest_since_entry:\n"
-                code += "                    self._highest_since_entry = self.data.Close[-1]\n"
-                code += "                _tight_stop = self._highest_since_entry * (1 - _zone_tight_sl / 100)\n"
-                code += "                if self.data.Close[-1] <= _tight_stop:\n"
+                if strat_dir == "Short Only":
+                    code += "                if self.data.Close[-1] < self._lowest_since_entry:\n"
+                    code += "                    self._lowest_since_entry = self.data.Close[-1]\n"
+                    code += "                _tight_stop = self._lowest_since_entry * (1 + _zone_tight_sl / 100)\n"
+                    code += "                if self.data.Close[-1] >= _tight_stop:\n"
+                else:
+                    code += "                if self.data.Close[-1] > self._highest_since_entry:\n"
+                    code += "                    self._highest_since_entry = self.data.Close[-1]\n"
+                    code += "                _tight_stop = self._highest_since_entry * (1 - _zone_tight_sl / 100)\n"
+                    code += "                if self.data.Close[-1] <= _tight_stop:\n"
                 code += "                    self.position.close()\n"
                 code += "                    return\n"
             
