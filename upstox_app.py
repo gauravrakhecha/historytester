@@ -355,11 +355,12 @@ def get_unified_master_list(broker):
         headers = {"User-Agent": "Mozilla/5.0"}
         for url in urls:
             try: 
-                resp = requests.get(url, headers=headers, timeout=3)
+                resp = requests.get(url, headers=headers, timeout=30)
                 if resp.status_code == 200:
                     import io
                     master_frames.append(pd.read_json(io.BytesIO(resp.content), compression='gzip'))
-            except: pass
+            except Exception as e:
+                print(f"Master list fetch failed for {url}: {e}")
         if master_frames:
             df = pd.concat(master_frames, ignore_index=True)
             if 'trading_symbol' in df.columns: df.rename(columns={'trading_symbol': 'tradingsymbol'}, inplace=True)
