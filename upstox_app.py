@@ -248,14 +248,19 @@ if selected_broker == "Upstox":
             st.sidebar.warning("Paste code and click Login again.")
         else:
             data = {"code": auth_code, "client_id": api_key, "client_secret": api_secret, "redirect_uri": redirect_uri, "grant_type": "authorization_code"}
-            resp = requests.post("https://api.upstox.com/v2/login/authorization/token", headers={"Content-Type": "application/x-www-form-urlencoded"}, data=data)
-            if resp.status_code == 200:
-                st.session_state.auth_dict = {'broker': "Upstox", 'access_token': resp.json().get('access_token')}
-                st.sidebar.success("Upstox Authenticated!")
-                st.query_params.clear()
-                st.rerun()
-            else:
-                st.sidebar.error(f"Login Failed! Code: {resp.status_code} \nResponse: {resp.text}")
+            try:
+                resp = requests.post("https://api.upstox.com/v2/login/authorization/token", headers={"Content-Type": "application/x-www-form-urlencoded"}, data=data, timeout=10)
+                if resp.status_code == 200:
+                    st.session_state.auth_dict = {'broker': "Upstox", 'access_token': resp.json().get('access_token')}
+                    st.sidebar.success("Upstox Authenticated!")
+                    st.query_params.clear()
+                    st.rerun()
+                else:
+                    st.sidebar.error(f"Login Failed! Code: {resp.status_code} \nResponse: {resp.text}")
+            except requests.exceptions.ConnectionError:
+                st.sidebar.error("Network Error: Failed to reach Upstox API. Please check your internet connection or DNS settings.")
+            except Exception as e:
+                st.sidebar.error(f"Login Request Failed: {e}")
 
 elif selected_broker == "Zerodha":
     api_key = st.sidebar.text_input("Kite API Key", value=os.getenv("ZERODHA_API_KEY", ""), type="password")
