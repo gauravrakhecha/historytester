@@ -3053,10 +3053,12 @@ Your strategies are **saved permanently** on the server and survive app reloads:
                                     
                                     if len(ml_df) < 20 or len(X.columns) == 0:
                                         st.error("Not enough valid data rows after processing features. Try selecting fewer features or testing over a larger time period.")
-                                    elif y.sum() < 2 or (len(y) - y.sum()) < 2:
+                                        st.stop()
+                                    if y.sum() < 2 or (len(y) - y.sum()) < 2:
                                         st.error("Not enough variance in the target metric (too few wins or too few losses). The AI cannot learn to differentiate if all trades have the same outcome.")
-                                    else:
-                                        # 4. Train XGBoost for Feature Importance
+                                        st.stop()
+                                        
+                                # 4. Train XGBoost for Feature Importance
                                 # AI Core 1: Gradient Boosting setup
                                 model_xgb = xgb.XGBClassifier(n_estimators=100, max_depth=4, learning_rate=0.1, random_state=42)
                                 model_xgb.fit(X, y)
