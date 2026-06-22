@@ -1251,23 +1251,27 @@ else:
             source_folder = st.text_input("📁 Source Folder (Contains 1-Min CSV/Parquet)", value=default_parquet_dir)
             dest_folder = st.text_input("📁 Destination Base Folder", value=default_parquet_dir)
         with col2:
-            tf_mode_loc = st.radio("Timeframe Mode", ["Specific Timeframes", "Continuous Range"], key="loc_tf_mode", horizontal=True)
-            if tf_mode_loc == "Specific Timeframes":
-                tf_input_loc = st.text_input("Timeframes (comma-separated)", value="3, 5, 10, 15, 30, 60", key="loc_tf_input")
-            else:
-                rc1, rc2 = st.columns(2)
-                with rc1: tf_start_loc = st.number_input("Start Range (Mins)", min_value=1, value=1, key="loc_start")
-                with rc2: tf_end_loc = st.number_input("End Range (Mins)", min_value=1, value=58, key="loc_end")
+            conv_mode = st.radio("Conversion Mode", ["Timeframe Resampling", "1:1 Format (CSV to Parquet)"], key="loc_conv_mode", horizontal=True)
+            if conv_mode == "Timeframe Resampling":
+                tf_mode_loc = st.radio("Timeframe Mode", ["Specific Timeframes", "Continuous Range"], key="loc_tf_mode", horizontal=True)
+                if tf_mode_loc == "Specific Timeframes":
+                    tf_input_loc = st.text_input("Timeframes (comma-separated)", value="3, 5, 10, 15, 30, 60", key="loc_tf_input")
+                else:
+                    rc1, rc2 = st.columns(2)
+                    with rc1: tf_start_loc = st.number_input("Start Range (Mins)", min_value=1, value=1, key="loc_start")
+                    with rc2: tf_end_loc = st.number_input("End Range (Mins)", min_value=1, value=58, key="loc_end")
 
         if st.button("🚀 Start Offline Batch Conversion", type="primary", use_container_width=True):
             if not os.path.exists(source_folder): st.error("Source folder does not exist.")
             elif not dest_folder: st.error("Please provide a destination folder.")
             else:
-                if tf_mode_loc == "Specific Timeframes":
-                    try: tfs_loc = [int(x.strip()) for x in tf_input_loc.split(",") if x.strip().isdigit()]
-                    except: st.error("Invalid timeframe format."); st.stop()
-                else:
-                    tfs_loc = list(range(int(tf_start_loc), int(tf_end_loc) + 1))
+                tfs_loc = []
+                if conv_mode == "Timeframe Resampling":
+                    if tf_mode_loc == "Specific Timeframes":
+                        try: tfs_loc = [int(x.strip()) for x in tf_input_loc.split(",") if x.strip().isdigit()]
+                        except: st.error("Invalid timeframe format."); st.stop()
+                    else:
+                        tfs_loc = list(range(int(tf_start_loc), int(tf_end_loc) + 1))
                 
                 csv_files = []
                 for root, dirs, files in os.walk(source_folder):
@@ -1282,26 +1286,33 @@ else:
                     
                     for i, file_path in enumerate(csv_files):
                         file_name = os.path.basename(file_path)
-                        status.text(f"Resampling {file_name} ({i+1}/{len(csv_files)})...")
+                        status.text(f"Processing {file_name} ({i+1}/{len(csv_files)})...")
                         
                         try:
                             df = pd.read_parquet(file_path) if file_path.endswith('.parquet') else pd.read_csv(file_path)
                             if 'Timestamp' in df.columns:
                                 df['Timestamp'] = pd.to_datetime(df['Timestamp'])
                                 
-                                for tf in tfs_loc:
-                                    df_resampled = resample_dataframe(df, tf)
-                                    tf_dir = os.path.join(dest_folder, f"{tf}Min")
-                                    os.makedirs(tf_dir, exist_ok=True)
-                                    
-                                    # Try to rename neatly
-                                    out_name = file_name.replace("1Minute", f"{tf}Min").replace("1Min", f"{tf}Min").replace(".csv", ".parquet")
-                                    if f"{tf}Min" not in out_name: out_name = f"{tf}Min_{out_name}"
+                                if conv_mode == "1:1 Format (CSV to Parquet)":
+                                    out_name = file_name.replace('.csv', '.parquet')
                                     if not out_name.endswith('.parquet'): out_name += '.parquet'
-                                        
-                                    out_path = os.path.join(tf_dir, out_name)
-                                    df_resampled.to_parquet(out_path, engine='pyarrow')
+                                    os.makedirs(dest_folder, exist_ok=True)
+                                    out_path = os.path.join(dest_folder, out_name)
+                                    df.to_parquet(out_path, engine='pyarrow')
                                     converted_count += 1
+                                else:
+                                    for tf in tfs_loc:
+                                        df_resampled = resample_dataframe(df, tf)
+                                        tf_dir = os.path.join(dest_folder, f"{tf}Min")
+                                        os.makedirs(tf_dir, exist_ok=True)
+                                        
+                                        out_name = file_name.replace("1Minute", f"{tf}Min").replace("1Min", f"{tf}Min").replace(".csv", ".parquet")
+                                        if f"{tf}Min" not in out_name: out_name = f"{tf}Min_{out_name}"
+                                        if not out_name.endswith('.parquet'): out_name += '.parquet'
+                                            
+                                        out_path = os.path.join(tf_dir, out_name)
+                                        df_resampled.to_parquet(out_path, engine='pyarrow')
+                                        converted_count += 1
                         except Exception as e: st.toast(f"Failed {file_name}: {e}")
                         
                         pct = (i + 1) / len(csv_files)
@@ -1868,6 +1879,7 @@ else:
             has_zones = len(st.session_state.get('range_zones', [])) > 0
             code = "import pandas_ta as pta\n"
             code += "class VisualStrategy(Strategy):\n"
+            code += f"    lot_size = {st.session_state.get('lot_size', 1)}\n"
             
             for ind in st.session_state.get('indicators', []):
                 raw_name = ind['name']
@@ -2149,7 +2161,7 @@ else:
             else:
                 code += f"        _raw_qty = int((self.equity * 0.99) // self.data.Close[-1])\n"
                 
-            code += f"        _trade_size = max({lot_size}, _raw_qty - (_raw_qty % {lot_size}))\n"
+            code += "        _trade_size = max(self.lot_size, _raw_qty - (_raw_qty % self.lot_size))\n"
             size_arg = "size=_trade_size"
             
             def get_sl_tp(is_short=False):
@@ -2391,6 +2403,17 @@ else:
                 else:
                     with st.expander("View Active Compiled Strategy"):
                         st.code(code, language='python')
+                        
+                    st.subheader("Runtime Overrides")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        import re
+                        parsed_lot_size = 1
+                        m = re.search(r'lot_size\s*=\s*(\d+)', code)
+                        if m: parsed_lot_size = int(m.group(1))
+                        bt_lot_override = st.number_input("Override Lot Size", value=parsed_lot_size, min_value=1, step=1, help="Change the lot size for this backtest without recompiling.")
+                        if bt_lot_override != parsed_lot_size:
+                            code = re.sub(r'lot_size\s*=\s*\d+', f'lot_size = {bt_lot_override}', code)
                     
                     st.subheader("Optimizer Settings")
                     enable_optimizer = st.checkbox("Enable Grid Search Optimizer")
@@ -2710,6 +2733,17 @@ else:
             else:
                 with st.expander("View Active Compiled Strategy"):
                     st.code(code, language='python')
+                    
+                st.subheader("Runtime Overrides")
+                c1, c2 = st.columns(2)
+                with c1:
+                    import re
+                    parsed_lot_size = 1
+                    m = re.search(r'lot_size\s*=\s*(\d+)', code)
+                    if m: parsed_lot_size = int(m.group(1))
+                    bt_lot_override = st.number_input("Override Lot Size", value=parsed_lot_size, min_value=1, step=1, help="Change the lot size for this backtest without recompiling.")
+                    if bt_lot_override != parsed_lot_size:
+                        code = re.sub(r'lot_size\s*=\s*\d+', f'lot_size = {bt_lot_override}', code)
                 
                 if st.button("Run Batch Backtest", use_container_width=True):
                     if not batch_folder or not os.path.exists(batch_folder):
