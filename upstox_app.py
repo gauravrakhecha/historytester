@@ -2756,21 +2756,24 @@ else:
                                         
                             if batch_results:
                                 batch_df = pd.DataFrame(batch_results)
+                                strat_dir_name = st.session_state.get('strat_dir', 'Long Only')
+                                batch_df.insert(1, 'Strategy Direction', strat_dir_name)
                                 st.success(f"Batch completed: {len(batch_results)} successful, {len(failed_files)} failed.")
                                 
                                 # Summary row
                                 summary = batch_df.select_dtypes(include=['float', 'int']).mean().round(3).to_frame().T
                                 summary['File'] = '📊 AVERAGE'
+                                summary['Strategy Direction'] = strat_dir_name
                                 batch_df = pd.concat([batch_df, summary], ignore_index=True)
                                 
-                                st.dataframe(batch_df, use_container_width=True)
+                                st.dataframe(batch_df.style.format(precision=3), use_container_width=True)
                                 
                                 # Save Batch to DB
                                 strat_label = st.session_state.get('strategy_label', 'Batch Custom')
                                 strat_config_json = json.dumps({'indicators': st.session_state.get('indicators', [])})
                                 with sqlite3.connect(DB_FILE, timeout=10) as conn:
                                     c = conn.cursor()
-                                    for res in batch_results[:-1]: # exclude average row from DB
+                                    for res in batch_results: # Save all legitimate results
                                         c.execute('''INSERT INTO backtests 
                                             (strategy_name, symbol, timeframe, start_date, end_date, parameters, return_pct, max_drawdown_pct, win_rate_pct, num_trades, sharpe_ratio, plot_file, full_stats, strategy_config)
                                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
