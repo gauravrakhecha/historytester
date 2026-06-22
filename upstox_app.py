@@ -749,10 +749,19 @@ def _backtest_worker(args):
         if feature_vars and '_trades' in stats and not stats['_trades'].empty:
             trades = stats['_trades'].copy()
             for var in feature_vars:
-                if hasattr(strat_instance, var):
-                    arr = getattr(strat_instance, var)
-                    if isinstance(arr, (np.ndarray, pd.Series, list)) or hasattr(arr, '__len__'):
-                        trades[f'Entry_{var}'] = [arr[i] if i < len(arr) else np.nan for i in trades['EntryBar']]
+                safe_name = "".join([c if c.isalnum() else "_" for c in var])
+                if safe_name and safe_name[0].isdigit(): safe_name = "_" + safe_name
+                
+                arr = None
+                if var in ["Close", "Open", "High", "Low", "Volume"]:
+                    if hasattr(strat_instance.data, var):
+                        arr = getattr(strat_instance.data, var)
+                else:
+                    if hasattr(strat_instance, safe_name):
+                        arr = getattr(strat_instance, safe_name)
+                
+                if arr is not None and (isinstance(arr, (np.ndarray, pd.Series, list)) or hasattr(arr, '__len__')):
+                    trades[f'Entry_{var}'] = [arr[i] if i < len(arr) else np.nan for i in trades['EntryBar']]
             trades_df = trades
 
         return {'File': os.path.basename(file_path), 'Stats': res, 'Trades': trades_df}
@@ -2580,10 +2589,19 @@ else:
                                                 else: available_vars.append(x['name'])
                                                 
                                             for var in available_vars:
-                                                if hasattr(strat_instance, var):
-                                                    arr = getattr(strat_instance, var)
-                                                    if isinstance(arr, (np.ndarray, pd.Series)) or hasattr(arr, '__len__'):
-                                                        trades[f'Entry_{var}'] = [arr[i] if i < len(arr) else np.nan for i in trades['EntryBar']]
+                                                safe_name = "".join([c if c.isalnum() else "_" for c in var])
+                                                if safe_name and safe_name[0].isdigit(): safe_name = "_" + safe_name
+                                                
+                                                arr = None
+                                                if var in ["Close", "Open", "High", "Low", "Volume"]:
+                                                    if hasattr(strat_instance.data, var):
+                                                        arr = getattr(strat_instance.data, var)
+                                                else:
+                                                    if hasattr(strat_instance, safe_name):
+                                                        arr = getattr(strat_instance, safe_name)
+                                                
+                                                if arr is not None and (isinstance(arr, (np.ndarray, pd.Series)) or hasattr(arr, '__len__')):
+                                                    trades[f'Entry_{var}'] = [arr[i] if i < len(arr) else np.nan for i in trades['EntryBar']]
                                             
                                             # Format float columns to 3 decimal places in trades df
                                             for col in trades.select_dtypes(include=['float']).columns:
@@ -3012,25 +3030,33 @@ Your strategies are **saved permanently** on the server and survive app reloads:
                             else:
                                 # 2. Extract Feature Matrix (X) at Entry Bars
                                 st.info(f"Successfully aggregated {len(trades_df)} historical trades for Machine Learning.")
-                                feature_cols = [f"Entry_{var}" for var in selected_features]
+                                feature_cols = [f"Entry_{var}" for var in selected_features if f"Entry_{var}" in trades_df.columns]
                                 
-                                # Drop NaNs safely to prevent XGBoost/Sklearn crashing
-                                ml_df = trades_df.dropna(subset=feature_cols).copy()
-                                X = ml_df[feature_cols]
-                                
-                                # AI Sanitize: Fix XGBoost Name Crashes ([, ], <, >)
-                                X.columns = [re.sub(r'[\[\]<>]', '_', col) for col in X.columns]
-                                
-                                # 3. Define Target (y)
-                                if target_metric == "Win (Return > 0)":
-                                    y = (ml_df['Return [%]'] > 0).astype(int)
+                                if not feature_cols:
+                                    st.error("None of the selected features could be extracted from the backtest results. Check your indicator names.")
                                 else:
-                                    y = (ml_df['Return [%]'] > 1.0).astype(int)  # 1.0%
-                                
-                                win_rate = y.mean() * 100
-                                st.write(f"**Baseline Probability of Success:** {win_rate:.1f}%")
-
-                                # 4. Train XGBoost for Feature Importance
+                                    # Drop NaNs safely to prevent XGBoost/Sklearn crashing
+                                    ml_df = trades_df.dropna(subset=feature_cols).copy()
+                                    X = ml_df[feature_cols]
+                                    
+                                    # AI Sanitize: Fix XGBoost Name Crashes ([, ], <, >)
+                                    X.columns = [re.sub(r'[\[\]<>]', '_', col) for col in X.columns]
+                                    
+                                    # 3. Define Target (y)
+                                    if target_metric == "Win (Return > 0)":
+                                        y = (ml_df['Return [%]'] > 0).astype(int)
+                                    else:
+                                        y = (ml_df['Return [%]'] > 1.0).astype(int)  # 1.0%
+                                    
+                                    win_rate = y.mean() * 100
+                                    st.metric(label=f"Baseline Pattern Win Rate ({target_metric})", value=f"{win_rate:.1f}%", help="The raw probability of success before applying the Machine Learning model filter.")
+                                    
+                                    if len(ml_df) < 20 or len(X.columns) == 0:
+                                        st.error("Not enough valid data rows after processing features. Try selecting fewer features or testing over a larger time period.")
+                                    elif y.sum() < 2 or (len(y) - y.sum()) < 2:
+                                        st.error("Not enough variance in the target metric (too few wins or too few losses). The AI cannot learn to differentiate if all trades have the same outcome.")
+                                    else:
+                                        # 4. Train XGBoost for Feature Importance
                                 # AI Core 1: Gradient Boosting setup
                                 model_xgb = xgb.XGBClassifier(n_estimators=100, max_depth=4, learning_rate=0.1, random_state=42)
                                 model_xgb.fit(X, y)
