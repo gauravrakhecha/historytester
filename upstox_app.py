@@ -1823,8 +1823,11 @@ else:
         if pos_size_type == "Fixed Value per Trade (₹) (Default)":
             fixed_pos_value = st.number_input("Amount per Trade (₹)", value=st.session_state.get('fixed_pos_value', 50000.0), min_value=100.0, step=1000.0)
             
+        lot_size = st.number_input("Instrument Lot Size (Use 1 for Equity)", value=st.session_state.get('lot_size', 1), min_value=1, step=1, help="Options and Futures are traded in fixed lot multiples.")
+            
         st.session_state['pos_size_type'] = pos_size_type
         st.session_state['fixed_pos_value'] = fixed_pos_value
+        st.session_state['lot_size'] = lot_size
 
         rm_mode = st.radio("Exit / Risk Management Mode", [
             "None (Use Sell Rules Only)",
@@ -2133,11 +2136,15 @@ else:
             strat_dir = st.session_state.get('strat_dir', 'Long Only')
             pos_size_type = st.session_state.get('pos_size_type', "Fixed Value per Trade (₹) (Default)")
             fixed_pos_value = st.session_state.get('fixed_pos_value', 50000.0)
+            lot_size = st.session_state.get('lot_size', 1)
+            
             if pos_size_type == "Fixed Value per Trade (₹) (Default)":
-                code += f"        _trade_size = max(1, int({fixed_pos_value} // self.data.Close[-1]))\n"
-                size_arg = "size=_trade_size"
+                code += f"        _raw_qty = int({fixed_pos_value} // self.data.Close[-1])\n"
             else:
-                size_arg = "size=0.999"
+                code += f"        _raw_qty = int((self.equity * 0.99) // self.data.Close[-1])\n"
+                
+            code += f"        _trade_size = max({lot_size}, _raw_qty - (_raw_qty % {lot_size}))\n"
+            size_arg = "size=_trade_size"
             
             def get_sl_tp(is_short=False):
                 sl_str, tp_str = "None", "None"
