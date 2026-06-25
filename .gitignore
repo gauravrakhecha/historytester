@@ -1,0 +1,34 @@
+# --- secrets (NEVER commit) ---
+.env
+.env.*
+*.key
+
+# --- databases / runtime data ---
+*.db
+*.db-wal
+*.db-shm
+data/
+backups/
+plots/
+
+# --- modular app runtime artifacts ---
+modular history/quantdesk_data.db
+modular history/plots/
+modular history/strategies/
+modular history/indicator_presets/
+modular history/.workflow/*.log
+modular history/.workflow/*.tmp
+modular history/.workflow/*.jsonl
+modular history/.workflow/modular.lock
+
+# --- python ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+
+# --- os ---
+.DS_Store
+Thumbs.db

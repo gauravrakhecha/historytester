@@ -1,0 +1,137 @@
+"""
+quantdesk.strategy.models — data contracts + shared helpers for the no-code builder.
+
+These mirror the plain dicts the original kept in ``st.session_state`` (``indicators``,
+``buy_rules``, ``sell_rules``, ``no_trade_rules``, ``range_zones`` and the risk-management
+block). ``to_dict``/``from_dict`` round-trip to the EXACT JSON shape the original saved, so
+existing ``strategies/*.json`` and ``indicator_presets/*.json`` files keep loading unchanged.
+
+Two helpers here are the antidote to bugs the review found, where the original re-derived the
+same logic inline in ~5 places (and the Plotter/ML pages missed multi-output indicators):
+
+- ``safe_name`` — the variable-name sanitiser used by codegen and trade-log enrichment.
+- ``selectable_columns`` — the single source of "every column a user can pick" (OHLCV +
+  every indicator output), driven by ``config.INDICATOR_OUTPUT_SUFFIXES``.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, List
+
+from quantdesk.config import INDICATOR_OUTPUT_SUFFIXES
+
+OHLCV = ["Close", "Open", "High", "Low", "Volume"]
+OPERATORS = [">", "<", "==", ">=", "<=", "Crosses Above", "Crosses Below"]
+ZONE_ACTIONS = [
+    "Normal Trading",
+    "Block New Entries",
+    "Tighten Trailing Stop",
+    "Close Position & Block",
+]
+RM_MODES = [
+    "None (Use Sell Rules Only)",
+    "Static % Stop Loss / Take Profit",
+    "Trailing Stop Loss (%)",
+    "Indicator-Based Exit (Advanced)",
+]
+STRAT_DIRECTIONS = ["Long Only", "Short Only", "Long & Short"]
+
+
+def safe_name(raw: str) -> str:
+    """Replicate the original sanitiser: non-alnum -> '_', prefix '_' if it starts a digit."""
+    name = "".join([c if c.isalnum() else "_" for c in str(raw)])
+    if name and name[0].isdigit():
+        name = "_" + name
+    return name
+
+
+def output_columns_for(indicator: Dict[str, Any]) -> List[str]:
+    """Return the column name(s) a single indicator dict exposes.
+
+    Single-output indicators expose their bare name; multi-output indicators expose
+    ``name + suffix`` for each suffix in ``INDICATOR_OUTPUT_SUFFIXES`` (MACD, Bollinger
+    Bands, Supertrend, Stochastic, Keltner, Donchian).
+    """
+    name = indicator["name"]
+    suffixes = INDICATOR_OUTPUT_SUFFIXES.get(indicator.get("type", ""))
+    if suffixes:
+        return [f"{name}{sfx}" for sfx in suffixes]
+    return [name]
+
+
+def selectable_columns(indicators: List[Dict[str, Any]]) -> List[str]:
+    """OHLCV + every output column of every indicator — the one list all pages must use."""
+    cols = list(OHLCV)
+    for ind in indicators or []:
+        cols.extend(output_columns_for(ind))
+    return cols
+
+
+@dataclass
+class RiskManagement:
+    mode: str = "None (Use Sell Rules Only)"
+    sl_pct: float = 2.0
+    tp_pct: float = 5.0
+    trail_pct: float = 2.0
+    strat_dir: str = "Long Only"
+
+    def to_dict(self) -> dict:
+        return {
+            "mode": self.mode,
+            "sl_pct": self.sl_pct,
+            "tp_pct": self.tp_pct,
+            "trail_pct": self.trail_pct,
+            "strat_dir": self.strat_dir,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict | None) -> "RiskManagement":
+        d = d or {}
+        return cls(
+            mode=d.get("mode", "None (Use Sell Rules Only)"),
+            sl_pct=d.get("sl_pct", 2.0),
+            tp_pct=d.get("tp_pct", 5.0),
+            trail_pct=d.get("trail_pct", 2.0),
+            strat_dir=d.get("strat_dir", "Long Only"),
+        )
+
+
+@dataclass
+class StrategyConfig:
+    """The full no-code strategy: identical JSON shape to the original preset files."""
+
+    indicators: List[dict] = field(default_factory=list)
+    buy_rules: List[dict] = field(default_factory=list)
+    sell_rules: List[dict] = field(default_factory=list)
+    no_trade_rules: List[dict] = field(default_factory=list)
+    range_zones: List[dict] = field(default_factory=list)
+    risk_management: RiskManagement = field(default_factory=RiskManagement)
+    # position sizing (lived in session_state, not the preset JSON in the original)
+    pos_size_type: str = "Fixed Value per Trade (₹) (Default)"
+    fixed_pos_value: float = 50000.0
+    lot_size: int = 1
+
+    def to_dict(self) -> dict:
+        """Matches the original export_data shape (preset JSON)."""
+        return {
+            "indicators": self.indicators,
+            "buy_rules": self.buy_rules,
+            "sell_rules": self.sell_rules,
+            "no_trade_rules": self.no_trade_rules,
+            "range_zones": self.range_zones,
+            "risk_management": self.risk_management.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "StrategyConfig":
+        return cls(
+            indicators=d.get("indicators", []),
+            buy_rules=d.get("buy_rules", []),
+            sell_rules=d.get("sell_rules", []),
+            no_trade_rules=d.get("no_trade_rules", []),
+            range_zones=d.get("range_zones", []),
+            risk_management=RiskManagement.from_dict(d.get("risk_management")),
+        )
+
+    def selectable_columns(self) -> List[str]:
+        return selectable_columns(self.indicators)

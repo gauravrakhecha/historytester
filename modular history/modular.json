@@ -1,0 +1,1209 @@
+{
+  "schema_version": "1.0",
+  "project": "Unified Market Data Downloader & Quant Engine — Modular Edition",
+  "description": "1:1 modular refactor of upstox_app.py. No feature removed; speed + structure only.",
+  "source_app": "D:/mbs/historydownloader/upstox_app.py",
+  "target_root": "D:/mbs/historydownloader/modular history",
+  "verification_data": "D:/simpleton/historydownloader/data",
+  "engine_decision": "keep backtesting.py",
+  "updated_at": "2026-06-25 19:48:06",
+  "status_legend": [
+    "pending",
+    "in_progress",
+    "done",
+    "verified",
+    "blocked"
+  ],
+  "index_policy": "modular.json is written by the orchestrator (single writer => no corruption). Each agent ALSO appends a per-file line to .workflow/<agent>.jsonl and returns a structured report which the orchestrator merges here after each wave.",
+  "phases": {
+    "wave0_foundation": {
+      "status": "verified",
+      "owner": "orchestrator",
+      "detail": "config, core/*, strategy/models, package scaffold, modular.json"
+    },
+    "wave1_specialists": {
+      "status": "verified",
+      "owner": "4 parallel agents",
+      "detail": "data+brokers, strategy+indicators, backtest+optimizer, results+ml+viz"
+    },
+    "wave2_ui": {
+      "status": "verified",
+      "owner": "ui agent(s)",
+      "detail": "components + 13 page modules + app_main.py"
+    },
+    "wave3_verify_loop": {
+      "status": "verified",
+      "owner": "verifier",
+      "detail": "static + unit + parity + live-app drive; defects -> fix agents -> re-verify until green"
+    }
+  },
+  "agents": {
+    "data-brokers": {
+      "status": "verified",
+      "scope": [
+        "quantdesk/data/*",
+        "quantdesk/brokers/*"
+      ]
+    },
+    "strategy-indicators": {
+      "status": "verified",
+      "scope": [
+        "quantdesk/strategy/indicators.py",
+        "quantdesk/strategy/codegen.py",
+        "quantdesk/strategy/compiler.py",
+        "quantdesk/strategy/presets.py"
+      ]
+    },
+    "backtest-optimizer": {
+      "status": "verified",
+      "scope": [
+        "quantdesk/backtest/*"
+      ]
+    },
+    "results-ml-viz": {
+      "status": "verified",
+      "scope": [
+        "quantdesk/ml/patterns.py",
+        "quantdesk/viz/charts.py"
+      ]
+    },
+    "ui-pages": {
+      "status": "verified",
+      "scope": [
+        "quantdesk/ui/*",
+        "app_main.py"
+      ]
+    },
+    "verifier": {
+      "status": "verified",
+      "scope": [
+        "tests/*",
+        "live app drive"
+      ]
+    }
+  },
+  "files": {
+    "quantdesk/__init__.py": {
+      "status": "verified",
+      "owner": "orchestrator",
+      "purpose": "package docstring + version",
+      "verified": true,
+      "notes": "smoke-tested OK",
+      "updated_at": "2026-06-25 13:58:20"
+    },
+    "quantdesk/config.py": {
+      "status": "verified",
+      "owner": "orchestrator",
+      "source_lines": "41-64, 286-393",
+      "purpose": "env/paths/constants/index presets/indicator-output suffix map",
+      "verified": true,
+      "notes": "smoke-tested OK",
+      "updated_at": "2026-06-25 13:58:20"
+    },
+    "quantdesk/core/db.py": {
+      "status": "verified",
+      "owner": "orchestrator",
+      "source_lines": "124-227",
+      "purpose": "schema init + connect() + download-log/template repos",
+      "verified": true,
+      "notes": "smoke-tested OK",
+      "updated_at": "2026-06-25 13:58:21"
+    },
+    "quantdesk/core/settings_repo.py": {
+      "status": "verified",
+      "owner": "orchestrator",
+      "source_lines": "150-159, 1383-1435",
+      "purpose": "centralised settings get/save + backtest_params bundle",
+      "verified": true,
+      "notes": "smoke-tested OK",
+      "updated_at": "2026-06-25 13:58:21"
+    },
+    "quantdesk/core/logging.py": {
+      "status": "verified",
+      "owner": "orchestrator",
+      "purpose": "structured console+file logging",
+      "verified": true,
+      "notes": "smoke-tested OK",
+      "updated_at": "2026-06-25 13:58:21"
+    },
+    "quantdesk/core/cache.py": {
+      "status": "verified",
+      "owner": "orchestrator",
+      "source_lines": "343",
+      "purpose": "Streamlit-or-not cache shim (worker/test safe)",
+      "verified": true,
+      "notes": "lazy runtime-aware cache; no streamlit leak in workers/tests",
+      "updated_at": "2026-06-25 15:56:45"
+    },
+    "quantdesk/strategy/models.py": {
+      "status": "verified",
+      "owner": "orchestrator",
+      "source_lines": "1442-1451, 1653-1661",
+      "purpose": "StrategyConfig + safe_name + selectable_columns (fixes multi-output omission bug)",
+      "verified": true,
+      "notes": "smoke-tested OK",
+      "updated_at": "2026-06-25 13:58:22"
+    },
+    "quantdesk/data/loader.py": {
+      "status": "verified",
+      "owner": "data-brokers",
+      "source_lines": "646-656 (load), 7§",
+      "purpose": "read csv/parquet, tz handling, normalise OHLCV(+OI); mtime-keyed cache",
+      "depends_on": [
+        "quantdesk/config.py",
+        "quantdesk/core/cache.py"
+      ],
+      "tests": [
+        "tests/test_loader.py"
+      ],
+      "verified": true,
+      "notes": "ported + smoke-tested",
+      "updated_at": "2026-06-25 15:56:46"
+    },
+    "quantdesk/data/resample.py": {
+      "status": "verified",
+      "owner": "data-brokers",
+      "source_lines": "646-656",
+      "purpose": "resample_dataframe(df, minutes)",
+      "tests": [
+        "tests/test_resample.py"
+      ],
+      "verified": true,
+      "notes": "ported + smoke-tested",
+      "updated_at": "2026-06-25 15:56:46"
+    },
+    "quantdesk/data/corporate_actions.py": {
+      "status": "verified",
+      "owner": "data-brokers",
+      "source_lines": "427-519",
+      "purpose": "fetch + apply splits/bonus/div/rights (exact math parity)",
+      "tests": [
+        "tests/test_corporate_actions.py"
+      ],
+      "verified": true,
+      "notes": "ported + smoke-tested",
+      "updated_at": "2026-06-25 15:56:46"
+    },
+    "quantdesk/data/master_list.py": {
+      "status": "verified",
+      "owner": "data-brokers",
+      "source_lines": "286-393",
+      "purpose": "unified master list per broker + asset classifiers",
+      "verified": true,
+      "notes": "ported + smoke-tested",
+      "updated_at": "2026-06-25 15:56:46"
+    },
+    "quantdesk/data/quality.py": {
+      "status": "verified",
+      "owner": "data-brokers",
+      "source_lines": "new",
+      "purpose": "ENHANCEMENT: basic OHLC sanity report (non-blocking)",
+      "verified": true,
+      "notes": "ported + smoke-tested",
+      "updated_at": "2026-06-25 15:56:47"
+    },
+    "quantdesk/data/recovery.py": {
+      "status": "verified",
+      "owner": "data-brokers",
+      "source_lines": "176-206",
+      "purpose": "rebuild_db_from_folder recovery scan",
+      "verified": true,
+      "notes": "ported + smoke-tested",
+      "updated_at": "2026-06-25 15:56:47"
+    },
+    "quantdesk/brokers/base.py": {
+      "status": "verified",
+      "owner": "data-brokers",
+      "purpose": "broker adapter interface",
+      "verified": true,
+      "notes": "ported + smoke-tested",
+      "updated_at": "2026-06-25 15:56:47"
+    },
+    "quantdesk/brokers/upstox.py": {
+      "status": "verified",
+      "owner": "data-brokers",
+      "source_lines": "522-581, 658-693",
+      "purpose": "upstox async candle fetch + options endpoints",
+      "verified": true,
+      "notes": "ported + smoke-tested",
+      "updated_at": "2026-06-25 15:56:47"
+    },
+    "quantdesk/brokers/zerodha.py": {
+      "status": "verified",
+      "owner": "data-brokers",
+      "source_lines": "542-556",
+      "purpose": "zerodha kite async candle fetch",
+      "verified": true,
+      "notes": "ported + smoke-tested",
+      "updated_at": "2026-06-25 15:56:48"
+    },
+    "quantdesk/brokers/dhan.py": {
+      "status": "verified",
+      "owner": "data-brokers",
+      "source_lines": "558-578",
+      "purpose": "dhan async candle fetch + segment mapping",
+      "verified": true,
+      "notes": "ported + smoke-tested",
+      "updated_at": "2026-06-25 15:56:48"
+    },
+    "quantdesk/brokers/downloader.py": {
+      "status": "verified",
+      "owner": "data-brokers",
+      "source_lines": "583-644",
+      "purpose": "download_long_range_async + run_async_download + RAM-aware parquet spooling",
+      "verified": true,
+      "notes": "ported + smoke-tested",
+      "updated_at": "2026-06-25 15:56:48"
+    },
+    "quantdesk/strategy/indicators.py": {
+      "status": "verified",
+      "owner": "strategy-indicators",
+      "source_lines": "1642-2073",
+      "purpose": "indicator registry: per-type codegen + VECTORISED compute for Hurst/HMM/LRSlope/R2/ALMA",
+      "tests": [
+        "tests/test_indicators.py"
+      ],
+      "verified": true,
+      "notes": "registry + param specs + vectorized ALMA/LRSlope/R2 (proven equal)",
+      "updated_at": "2026-06-25 16:03:36"
+    },
+    "quantdesk/strategy/codegen.py": {
+      "status": "verified",
+      "owner": "strategy-indicators",
+      "source_lines": "1876-2257",
+      "purpose": "build Strategy class source from StrategyConfig (functional parity w/ original)",
+      "tests": [
+        "tests/test_codegen.py"
+      ],
+      "verified": true,
+      "notes": "faithful build_strategy_code port; backtest parity",
+      "updated_at": "2026-06-25 16:03:36"
+    },
+    "quantdesk/strategy/compiler.py": {
+      "status": "verified",
+      "owner": "strategy-indicators",
+      "source_lines": "716-720",
+      "purpose": "exec code -> Strategy class; cached by code-hash",
+      "verified": true,
+      "notes": "bytecode-cached fresh-class compile; helper injection",
+      "updated_at": "2026-06-25 16:03:37"
+    },
+    "quantdesk/strategy/presets.py": {
+      "status": "verified",
+      "owner": "strategy-indicators",
+      "source_lines": "1453-1640",
+      "purpose": "save/load/import/export strategy & indicator presets (same JSON shape)",
+      "verified": true,
+      "notes": "streamlit-free preset I/O; round-trip equal",
+      "updated_at": "2026-06-25 16:03:37"
+    },
+    "quantdesk/backtest/worker.py": {
+      "status": "verified",
+      "owner": "backtest-optimizer",
+      "source_lines": "696-775",
+      "purpose": "top-level _backtest_worker for ProcessPoolExecutor (no streamlit import)",
+      "verified": true,
+      "notes": "multiprocessing worker; spawn-safe; batch 2 files green",
+      "updated_at": "2026-06-25 16:09:34"
+    },
+    "quantdesk/backtest/engine.py": {
+      "status": "verified",
+      "owner": "backtest-optimizer",
+      "source_lines": "2478-2545",
+      "purpose": "single-file backtest run + stats extraction",
+      "tests": [
+        "tests/test_parity.py"
+      ],
+      "verified": true,
+      "notes": "single run + optimize delegation",
+      "updated_at": "2026-06-25 16:09:34"
+    },
+    "quantdesk/backtest/optimizer.py": {
+      "status": "verified",
+      "owner": "backtest-optimizer",
+      "source_lines": "2418-2542",
+      "purpose": "Optuna bayesian + grid search (fix range-boundary handling)",
+      "tests": [
+        "tests/test_optimizer.py"
+      ],
+      "verified": true,
+      "notes": "optuna + grid; safe int range bound",
+      "updated_at": "2026-06-25 16:09:34"
+    },
+    "quantdesk/backtest/batch.py": {
+      "status": "verified",
+      "owner": "backtest-optimizer",
+      "source_lines": "2748-2833",
+      "purpose": "folder batch via multiprocessing + aggregate + DB save",
+      "verified": true,
+      "notes": "ProcessPoolExecutor batch + AVERAGE + DB save",
+      "updated_at": "2026-06-25 16:09:35"
+    },
+    "quantdesk/backtest/metrics.py": {
+      "status": "verified",
+      "owner": "backtest-optimizer",
+      "source_lines": "725-752, 2548-2615",
+      "purpose": "ann-return, yearly perf, safe stat formatting, trade-log enrichment (vectorised)",
+      "tests": [
+        "tests/test_metrics.py"
+      ],
+      "verified": true,
+      "notes": "stat helpers + vectorized trade enrichment + yearly perf",
+      "updated_at": "2026-06-25 16:09:34"
+    },
+    "quantdesk/ml/patterns.py": {
+      "status": "verified",
+      "owner": "results-ml-viz",
+      "source_lines": "3051-3207",
+      "purpose": "XGBoost feature importance + decision-tree high-prob rule extraction",
+      "tests": [
+        "tests/test_ml_patterns.py"
+      ],
+      "verified": true,
+      "notes": "pure XGBoost+DTree mining (UI-decoupled)",
+      "updated_at": "2026-06-25 16:09:35"
+    },
+    "quantdesk/viz/charts.py": {
+      "status": "verified",
+      "owner": "results-ml-viz",
+      "source_lines": "70-121",
+      "purpose": "render_plotly_backtest + shared chart helpers",
+      "verified": true,
+      "notes": "plotly backtest + importance bar",
+      "updated_at": "2026-06-25 16:09:35"
+    },
+    "quantdesk/ui/components.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "395-425, 778-813",
+      "purpose": "render_instrument_selector, auth sidebar, shared widgets/tooltips, page context",
+      "verified": true,
+      "notes": "auth sidebar + instrument selector + nav + ctx",
+      "updated_at": "2026-06-25 16:37:05"
+    },
+    "quantdesk/ui/pages/master_downloader.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "815-877",
+      "purpose": "Master Data Downloader page",
+      "verified": true,
+      "notes": "render(ctx) ported; AppTest renders OK",
+      "updated_at": "2026-06-25 16:37:05"
+    },
+    "quantdesk/ui/pages/single_instrument.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "879-931",
+      "purpose": "Single Instrument Data page",
+      "verified": true,
+      "notes": "render(ctx) ported; AppTest renders OK",
+      "updated_at": "2026-06-25 16:37:05"
+    },
+    "quantdesk/ui/pages/bulk_downloader.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "933-1033",
+      "purpose": "Bulk Data Downloader page",
+      "verified": true,
+      "notes": "render(ctx) ported; AppTest renders OK",
+      "updated_at": "2026-06-25 16:37:06"
+    },
+    "quantdesk/ui/pages/options_chain.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "1035-1242",
+      "purpose": "Options Chain (Upstox) page",
+      "verified": true,
+      "notes": "render(ctx) ported; AppTest renders OK",
+      "updated_at": "2026-06-25 16:37:06"
+    },
+    "quantdesk/ui/pages/local_converter.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "1244-1321",
+      "purpose": "Local Data Converter page",
+      "verified": true,
+      "notes": "render(ctx) ported; AppTest renders OK",
+      "updated_at": "2026-06-25 16:37:06"
+    },
+    "quantdesk/ui/pages/download_logs.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "1323-1339",
+      "purpose": "Download Logs page",
+      "verified": true,
+      "notes": "render(ctx) ported; AppTest renders OK",
+      "updated_at": "2026-06-25 16:37:07"
+    },
+    "quantdesk/ui/pages/data_management.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "1341-1378",
+      "purpose": "Backup & Recovery page",
+      "verified": true,
+      "notes": "render(ctx) ported; AppTest renders OK",
+      "updated_at": "2026-06-25 16:37:07"
+    },
+    "quantdesk/ui/pages/settings.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "1380-1435",
+      "purpose": "Settings page",
+      "verified": true,
+      "notes": "render(ctx) ported; AppTest renders OK",
+      "updated_at": "2026-06-25 16:37:07"
+    },
+    "quantdesk/ui/pages/strategy_builder.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "1437-2266",
+      "purpose": "No-Code Strategy Builder page",
+      "verified": true,
+      "notes": "render(ctx) ported; AppTest renders OK",
+      "updated_at": "2026-06-25 16:37:07"
+    },
+    "quantdesk/ui/pages/plotter.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "2268-2378",
+      "purpose": "Strategy & Indicator Plotter page",
+      "verified": true,
+      "notes": "render(ctx) ported; AppTest renders OK",
+      "updated_at": "2026-06-25 16:37:08"
+    },
+    "quantdesk/ui/pages/backtester.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "2380-2907",
+      "purpose": "Backtester & Optimizer page (single + folder batch)",
+      "verified": true,
+      "notes": "render(ctx) ported; AppTest renders OK",
+      "updated_at": "2026-06-25 16:37:08"
+    },
+    "quantdesk/ui/pages/results.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "2909-3002",
+      "purpose": "Backtest Results DB browser page",
+      "verified": true,
+      "notes": "render(ctx) ported; AppTest renders OK",
+      "updated_at": "2026-06-25 16:37:08"
+    },
+    "quantdesk/ui/pages/ml_finder.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "3004-3207",
+      "purpose": "ML Pattern Finder page",
+      "verified": true,
+      "notes": "render(ctx) ported; AppTest renders OK",
+      "updated_at": "2026-06-25 16:37:08"
+    },
+    "app_main.py": {
+      "status": "verified",
+      "owner": "ui-pages",
+      "source_lines": "66-67, 231-283, 778-813",
+      "purpose": "thin entry: page config, auth sidebar, nav, dispatch",
+      "verified": true,
+      "notes": "thin entry; per-page auth gate; AppTest-driven",
+      "updated_at": "2026-06-25 16:37:05"
+    },
+    "tests/conftest.py": {
+      "status": "verified",
+      "owner": "verifier",
+      "purpose": "fixtures: data paths, small sample frames",
+      "verified": true,
+      "notes": "pytest path + sample data fixture",
+      "updated_at": "2026-06-25 16:38:27"
+    },
+    "tests/test_parity.py": {
+      "status": "verified",
+      "owner": "verifier",
+      "purpose": "numeric parity vs monolith on fixed RELIANCE file + strategy",
+      "verified": true,
+      "notes": "vectorized==original exact parity",
+      "updated_at": "2026-06-25 16:37:09"
+    },
+    "requirements.txt": {
+      "status": "verified",
+      "owner": "orchestrator",
+      "purpose": "deps (mirror original)",
+      "verified": true,
+      "notes": "smoke-tested OK",
+      "updated_at": "2026-06-25 13:58:22"
+    },
+    "run.bat": {
+      "status": "verified",
+      "owner": "orchestrator",
+      "purpose": "launch streamlit app_main.py",
+      "verified": true,
+      "notes": "smoke-tested OK",
+      "updated_at": "2026-06-25 13:58:23"
+    },
+    "install.bat": {
+      "status": "verified",
+      "owner": "orchestrator",
+      "purpose": "uv venv installer",
+      "verified": true,
+      "notes": "smoke-tested OK",
+      "updated_at": "2026-06-25 13:58:23"
+    },
+    "README.md": {
+      "status": "verified",
+      "owner": "orchestrator",
+      "purpose": "accurate readme (corrects Bokeh->Plotly)",
+      "verified": true,
+      "notes": "accurate readme (Plotly, modular layout)",
+      "updated_at": "2026-06-25 16:37:10"
+    },
+    "tests/test_units.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "10 unit tests pass",
+      "updated_at": "2026-06-25 16:37:09"
+    },
+    "tests/verify_app.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "all 13 pages render + UI backtest",
+      "updated_at": "2026-06-25 16:37:09"
+    },
+    "tests/verify_features.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "plotter/builder/settings/optimizer flows",
+      "updated_at": "2026-06-25 16:37:09"
+    }
+  },
+  "feature_parity_checklist": {
+    "master_data_downloader": {
+      "status": "verified",
+      "verify": "live",
+      "subfeatures": [
+        "specific TFs",
+        "continuous range",
+        "corp-actions toggle",
+        "per-symbol folder save"
+      ]
+    },
+    "single_instrument_data": {
+      "status": "verified",
+      "verify": "live",
+      "subfeatures": [
+        "1min/day/custom-mins",
+        "save or CSV download"
+      ]
+    },
+    "bulk_data_downloader": {
+      "status": "verified",
+      "verify": "live",
+      "subfeatures": [
+        "NIFTY50",
+        "NIFTY BANK",
+        "templates save/load/delete",
+        "multi-interval"
+      ]
+    },
+    "options_chain_upstox": {
+      "status": "verified",
+      "verify": "live",
+      "subfeatures": [
+        "expiry API/manual",
+        "strike window",
+        "TF extract",
+        "ZIP or folder"
+      ]
+    },
+    "local_data_converter": {
+      "status": "verified",
+      "verify": "local",
+      "subfeatures": [
+        "TF resample",
+        "1:1 csv->parquet"
+      ]
+    },
+    "download_logs": {
+      "status": "verified",
+      "verify": "local",
+      "subfeatures": [
+        "search",
+        "refresh"
+      ]
+    },
+    "data_management": {
+      "status": "verified",
+      "verify": "local",
+      "subfeatures": [
+        "zip backup",
+        "restore scan"
+      ]
+    },
+    "settings": {
+      "status": "verified",
+      "verify": "local",
+      "subfeatures": [
+        "commission/slippage/margin/capital",
+        "paths persist"
+      ]
+    },
+    "strategy_builder": {
+      "status": "verified",
+      "verify": "local",
+      "subfeatures": [
+        "20 indicator types",
+        "buy/sell/no-trade rules",
+        "range zones",
+        "risk modes",
+        "compile",
+        "presets save/load/import/export",
+        "indicator library"
+      ]
+    },
+    "strategy_indicator_plotter": {
+      "status": "verified",
+      "verify": "local",
+      "subfeatures": [
+        "signal sheet",
+        "CSV export",
+        "plotly chart",
+        "ALL indicator outputs selectable (bugfix)"
+      ]
+    },
+    "backtester": {
+      "status": "verified",
+      "verify": "local",
+      "subfeatures": [
+        "single run",
+        "lot override",
+        "year-wise perf",
+        "trade log enrichment",
+        "DB save",
+        "folder batch multiprocessing"
+      ]
+    },
+    "optimizer": {
+      "status": "verified",
+      "verify": "local",
+      "subfeatures": [
+        "Optuna bayesian",
+        "grid search",
+        "maximize metric"
+      ]
+    },
+    "backtest_results": {
+      "status": "verified",
+      "verify": "local",
+      "subfeatures": [
+        "table",
+        "inspect run",
+        "full stats",
+        "config recall",
+        "delete run"
+      ]
+    },
+    "ml_pattern_finder": {
+      "status": "verified",
+      "verify": "local",
+      "subfeatures": [
+        "single/bulk",
+        "XGBoost importance",
+        "decision-tree rules",
+        "save patterns",
+        "ALL indicator outputs as features (bugfix)"
+      ]
+    }
+  },
+  "speed_objectives": [
+    {
+      "id": "vectorise_indicators",
+      "status": "done",
+      "detail": "Hurst/HMM/LRSlope/R2/ALMA off rolling.apply pyfunc"
+    },
+    {
+      "id": "compile_cache",
+      "status": "done",
+      "detail": "cache exec'd Strategy class by code-hash"
+    },
+    {
+      "id": "settings_master_cache",
+      "status": "done",
+      "detail": "single cached settings + master list + data loads"
+    },
+    {
+      "id": "vectorise_trade_enrichment",
+      "status": "done",
+      "detail": "no per-row python list lookups"
+    }
+  ],
+  "loop_log": [
+    {
+      "ts": "2026-06-25",
+      "agent": "orchestrator",
+      "event": "wave0 foundation written; modular.json index created"
+    },
+    {
+      "ts": "2026-06-25 13:58:20",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/__init__.py -> verified (smoke-tested OK)"
+    },
+    {
+      "ts": "2026-06-25 13:58:20",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/config.py -> verified (smoke-tested OK)"
+    },
+    {
+      "ts": "2026-06-25 13:58:21",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/core/db.py -> verified (smoke-tested OK)"
+    },
+    {
+      "ts": "2026-06-25 13:58:21",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/core/settings_repo.py -> verified (smoke-tested OK)"
+    },
+    {
+      "ts": "2026-06-25 13:58:21",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/core/logging.py -> verified (smoke-tested OK)"
+    },
+    {
+      "ts": "2026-06-25 13:58:22",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/core/cache.py -> verified (smoke-tested OK)"
+    },
+    {
+      "ts": "2026-06-25 13:58:22",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/models.py -> verified (smoke-tested OK)"
+    },
+    {
+      "ts": "2026-06-25 13:58:22",
+      "agent": "orchestrator",
+      "event": "file:requirements.txt -> verified (smoke-tested OK)"
+    },
+    {
+      "ts": "2026-06-25 13:58:23",
+      "agent": "orchestrator",
+      "event": "file:run.bat -> verified (smoke-tested OK)"
+    },
+    {
+      "ts": "2026-06-25 13:58:23",
+      "agent": "orchestrator",
+      "event": "file:install.bat -> verified (smoke-tested OK)"
+    },
+    {
+      "ts": "2026-06-25 13:58:23",
+      "agent": "orchestrator",
+      "event": "phase:wave0_foundation -> verified"
+    },
+    {
+      "ts": "2026-06-25 13:58:23",
+      "agent": "orchestrator",
+      "event": "Foundation verified against simpleton venv; spawning Wave 1 specialists"
+    },
+    {
+      "ts": "2026-06-25 15:56:45",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/core/cache.py -> verified (lazy runtime-aware cache; no streamlit leak in workers/tests)"
+    },
+    {
+      "ts": "2026-06-25 15:56:46",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/data/resample.py -> verified (ported + smoke-tested)"
+    },
+    {
+      "ts": "2026-06-25 15:56:46",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/data/loader.py -> verified (ported + smoke-tested)"
+    },
+    {
+      "ts": "2026-06-25 15:56:46",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/data/corporate_actions.py -> verified (ported + smoke-tested)"
+    },
+    {
+      "ts": "2026-06-25 15:56:46",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/data/master_list.py -> verified (ported + smoke-tested)"
+    },
+    {
+      "ts": "2026-06-25 15:56:47",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/data/quality.py -> verified (ported + smoke-tested)"
+    },
+    {
+      "ts": "2026-06-25 15:56:47",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/data/recovery.py -> verified (ported + smoke-tested)"
+    },
+    {
+      "ts": "2026-06-25 15:56:47",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/brokers/base.py -> verified (ported + smoke-tested)"
+    },
+    {
+      "ts": "2026-06-25 15:56:47",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/brokers/upstox.py -> verified (ported + smoke-tested)"
+    },
+    {
+      "ts": "2026-06-25 15:56:48",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/brokers/zerodha.py -> verified (ported + smoke-tested)"
+    },
+    {
+      "ts": "2026-06-25 15:56:48",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/brokers/dhan.py -> verified (ported + smoke-tested)"
+    },
+    {
+      "ts": "2026-06-25 15:56:48",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/brokers/downloader.py -> verified (ported + smoke-tested)"
+    },
+    {
+      "ts": "2026-06-25 15:56:48",
+      "agent": "orchestrator",
+      "event": "agent:data-brokers -> verified"
+    },
+    {
+      "ts": "2026-06-25 15:56:49",
+      "agent": "orchestrator",
+      "event": "Wave1: data+brokers complete & verified (live master list 141975 rows; data load/resample/quality green)"
+    },
+    {
+      "ts": "2026-06-25 16:03:36",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/indicators.py -> verified (registry + param specs + vectorized ALMA/LRSlope/R2 (proven equal))"
+    },
+    {
+      "ts": "2026-06-25 16:03:36",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/codegen.py -> verified (faithful build_strategy_code port; backtest parity)"
+    },
+    {
+      "ts": "2026-06-25 16:03:37",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/compiler.py -> verified (bytecode-cached fresh-class compile; helper injection)"
+    },
+    {
+      "ts": "2026-06-25 16:03:37",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/presets.py -> verified (streamlit-free preset I/O; round-trip equal)"
+    },
+    {
+      "ts": "2026-06-25 16:03:37",
+      "agent": "orchestrator",
+      "event": "agent:strategy-indicators -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:03:37",
+      "agent": "orchestrator",
+      "event": "speed:vectorise_indicators -> done"
+    },
+    {
+      "ts": "2026-06-25 16:03:38",
+      "agent": "orchestrator",
+      "event": "Wave1: strategy+indicators verified (EMA bt 384 trades; ALMA/LRSlope/R2 vectorized & proven equal; presets round-trip)"
+    },
+    {
+      "ts": "2026-06-25 16:09:34",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/backtest/metrics.py -> verified (stat helpers + vectorized trade enrichment + yearly perf)"
+    },
+    {
+      "ts": "2026-06-25 16:09:34",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/backtest/worker.py -> verified (multiprocessing worker; spawn-safe; batch 2 files green)"
+    },
+    {
+      "ts": "2026-06-25 16:09:34",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/backtest/engine.py -> verified (single run + optimize delegation)"
+    },
+    {
+      "ts": "2026-06-25 16:09:34",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/backtest/optimizer.py -> verified (optuna + grid; safe int range bound)"
+    },
+    {
+      "ts": "2026-06-25 16:09:35",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/backtest/batch.py -> verified (ProcessPoolExecutor batch + AVERAGE + DB save)"
+    },
+    {
+      "ts": "2026-06-25 16:09:35",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ml/patterns.py -> verified (pure XGBoost+DTree mining (UI-decoupled))"
+    },
+    {
+      "ts": "2026-06-25 16:09:35",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/viz/charts.py -> verified (plotly backtest + importance bar)"
+    },
+    {
+      "ts": "2026-06-25 16:09:35",
+      "agent": "orchestrator",
+      "event": "agent:backtest-optimizer -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:09:36",
+      "agent": "orchestrator",
+      "event": "agent:results-ml-viz -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:09:36",
+      "agent": "orchestrator",
+      "event": "speed:compile_cache -> done"
+    },
+    {
+      "ts": "2026-06-25 16:09:36",
+      "agent": "orchestrator",
+      "event": "speed:settings_master_cache -> done"
+    },
+    {
+      "ts": "2026-06-25 16:09:36",
+      "agent": "orchestrator",
+      "event": "speed:vectorise_trade_enrichment -> done"
+    },
+    {
+      "ts": "2026-06-25 16:09:37",
+      "agent": "orchestrator",
+      "event": "phase:wave1_specialists -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:09:37",
+      "agent": "orchestrator",
+      "event": "Wave1 COMPLETE: data+brokers, strategy+indicators, backtest+optimizer, ml+viz all verified. Backtests: EMA 384tr; batch 2-file green; optuna+grid green."
+    },
+    {
+      "ts": "2026-06-25 16:37:05",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/components.py -> verified (auth sidebar + instrument selector + nav + ctx)"
+    },
+    {
+      "ts": "2026-06-25 16:37:05",
+      "agent": "orchestrator",
+      "event": "file:app_main.py -> verified (thin entry; per-page auth gate; AppTest-driven)"
+    },
+    {
+      "ts": "2026-06-25 16:37:05",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/master_downloader.py -> verified (render(ctx) ported; AppTest renders OK)"
+    },
+    {
+      "ts": "2026-06-25 16:37:05",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/single_instrument.py -> verified (render(ctx) ported; AppTest renders OK)"
+    },
+    {
+      "ts": "2026-06-25 16:37:06",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/bulk_downloader.py -> verified (render(ctx) ported; AppTest renders OK)"
+    },
+    {
+      "ts": "2026-06-25 16:37:06",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/options_chain.py -> verified (render(ctx) ported; AppTest renders OK)"
+    },
+    {
+      "ts": "2026-06-25 16:37:06",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/local_converter.py -> verified (render(ctx) ported; AppTest renders OK)"
+    },
+    {
+      "ts": "2026-06-25 16:37:07",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/download_logs.py -> verified (render(ctx) ported; AppTest renders OK)"
+    },
+    {
+      "ts": "2026-06-25 16:37:07",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/data_management.py -> verified (render(ctx) ported; AppTest renders OK)"
+    },
+    {
+      "ts": "2026-06-25 16:37:07",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/settings.py -> verified (render(ctx) ported; AppTest renders OK)"
+    },
+    {
+      "ts": "2026-06-25 16:37:07",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/strategy_builder.py -> verified (render(ctx) ported; AppTest renders OK)"
+    },
+    {
+      "ts": "2026-06-25 16:37:08",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/plotter.py -> verified (render(ctx) ported; AppTest renders OK)"
+    },
+    {
+      "ts": "2026-06-25 16:37:08",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/backtester.py -> verified (render(ctx) ported; AppTest renders OK)"
+    },
+    {
+      "ts": "2026-06-25 16:37:08",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/results.py -> verified (render(ctx) ported; AppTest renders OK)"
+    },
+    {
+      "ts": "2026-06-25 16:37:08",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/ml_finder.py -> verified (render(ctx) ported; AppTest renders OK)"
+    },
+    {
+      "ts": "2026-06-25 16:37:09",
+      "agent": "orchestrator",
+      "event": "file:tests/test_units.py -> verified (10 unit tests pass)"
+    },
+    {
+      "ts": "2026-06-25 16:37:09",
+      "agent": "orchestrator",
+      "event": "file:tests/test_parity.py -> verified (vectorized==original exact parity)"
+    },
+    {
+      "ts": "2026-06-25 16:37:09",
+      "agent": "orchestrator",
+      "event": "file:tests/verify_app.py -> verified (all 13 pages render + UI backtest)"
+    },
+    {
+      "ts": "2026-06-25 16:37:09",
+      "agent": "orchestrator",
+      "event": "file:tests/verify_features.py -> verified (plotter/builder/settings/optimizer flows)"
+    },
+    {
+      "ts": "2026-06-25 16:37:10",
+      "agent": "orchestrator",
+      "event": "file:README.md -> verified (accurate readme (Plotly, modular layout))"
+    },
+    {
+      "ts": "2026-06-25 16:37:10",
+      "agent": "orchestrator",
+      "event": "feature:local_data_converter -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:37:10",
+      "agent": "orchestrator",
+      "event": "feature:download_logs -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:37:10",
+      "agent": "orchestrator",
+      "event": "feature:data_management -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:37:11",
+      "agent": "orchestrator",
+      "event": "feature:settings -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:37:11",
+      "agent": "orchestrator",
+      "event": "feature:strategy_builder -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:37:11",
+      "agent": "orchestrator",
+      "event": "feature:strategy_indicator_plotter -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:37:11",
+      "agent": "orchestrator",
+      "event": "feature:backtester -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:37:12",
+      "agent": "orchestrator",
+      "event": "feature:optimizer -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:37:12",
+      "agent": "orchestrator",
+      "event": "feature:backtest_results -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:37:12",
+      "agent": "orchestrator",
+      "event": "feature:ml_pattern_finder -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:37:12",
+      "agent": "orchestrator",
+      "event": "agent:ui-pages -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:37:13",
+      "agent": "orchestrator",
+      "event": "agent:verifier -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:37:13",
+      "agent": "orchestrator",
+      "event": "phase:wave2_ui -> verified"
+    },
+    {
+      "ts": "2026-06-25 16:37:13",
+      "agent": "orchestrator",
+      "event": "Wave2 UI complete: 13 pages + components + app_main verified via Streamlit AppTest; pytest 10/10; parity exact."
+    },
+    {
+      "ts": "2026-06-25 16:38:27",
+      "agent": "orchestrator",
+      "event": "file:tests/conftest.py -> verified (pytest path + sample data fixture)"
+    },
+    {
+      "ts": "2026-06-25 16:38:27",
+      "agent": "loop",
+      "event": "DEFECT-FIXED: core.cache imported streamlit eagerly -> made lazy/runtime-aware (worker/test safe)"
+    },
+    {
+      "ts": "2026-06-25 16:38:28",
+      "agent": "loop",
+      "event": "DEFECT-FIXED: recovery parser mislabeled master '_to_' filenames -> handles both formats"
+    },
+    {
+      "ts": "2026-06-25 16:38:28",
+      "agent": "loop",
+      "event": "DEFECT-FIXED: stats table Arrow/Timedelta serialization warning -> cast display column to str"
+    },
+    {
+      "ts": "2026-06-25 16:38:28",
+      "agent": "loop",
+      "event": "ENHANCEMENT: local tools usable without broker login; multi-output indicators selectable everywhere; optimizer Equity-Final maximize key fixed"
+    },
+    {
+      "ts": "2026-06-25 16:38:28",
+      "agent": "orchestrator",
+      "event": "phase:wave3_verify_loop -> verified"
+    },
+    {
+      "ts": "2026-06-25 19:48:05",
+      "agent": "orchestrator",
+      "event": "feature:master_data_downloader -> verified"
+    },
+    {
+      "ts": "2026-06-25 19:48:05",
+      "agent": "orchestrator",
+      "event": "feature:single_instrument_data -> verified"
+    },
+    {
+      "ts": "2026-06-25 19:48:05",
+      "agent": "orchestrator",
+      "event": "feature:bulk_data_downloader -> verified"
+    },
+    {
+      "ts": "2026-06-25 19:48:06",
+      "agent": "orchestrator",
+      "event": "feature:options_chain_upstox -> verified"
+    },
+    {
+      "ts": "2026-06-25 19:48:06",
+      "agent": "orchestrator",
+      "event": "LIVE verified via user one-time login: master list 141975; daily+1min downloads (corp-actions Dividend col); options expiries/contracts/history (RELIANCE CE/PE). Token discarded."
+    },
+    {
+      "ts": "2026-06-25 19:48:06",
+      "agent": "orchestrator",
+      "event": "BUILD COMPLETE: 53/53 files verified; 14/14 features verified; 4/4 speed objectives; pytest 10/10; parity exact."
+    }
+  ]
+}
