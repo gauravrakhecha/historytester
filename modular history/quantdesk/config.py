@@ -55,6 +55,11 @@ DEFAULTS = {
     "parquet_data_dir": DEFAULT_DATA_DIR,
 }
 
+# --- DATA-QUALITY GATE THRESHOLDS (Standing Rule 0.2a) ---------------------
+# Below WARN: annotate the run with a warning. Below BLOCK: refuse to run.
+QUALITY_WARN_THRESHOLD: float = float(os.getenv("QUANTDESK_QUALITY_WARN", "80"))
+QUALITY_BLOCK_THRESHOLD: float = float(os.getenv("QUANTDESK_QUALITY_BLOCK", "40"))
+
 # --- BROKER API (read from .env; never hard-coded) -------------------------
 UPSTOX_API_KEY = os.getenv("UPSTOX_API_KEY", "")
 UPSTOX_API_SECRET = os.getenv("UPSTOX_API_SECRET", "")

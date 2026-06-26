@@ -14,6 +14,8 @@ import numpy as np  # noqa: F401 — used indirectly + kept for parity of the wo
 import pandas as pd
 
 from quantdesk.backtest.metrics import enrich_trades, safe_stat
+from quantdesk.config import QUALITY_BLOCK_THRESHOLD
+from quantdesk.data.quality import validate as validate_quality
 from quantdesk.strategy.compiler import compile_strategy
 
 
@@ -30,6 +32,11 @@ def run_worker(args):
 
         if df.empty or len(df) < 50:
             return {"File": os.path.basename(file_path), "Error": "Too few rows"}
+
+        # Data-quality gate (#3): block obviously-broken data, annotate the rest.
+        q = validate_quality(df)
+        if q["quality_score"] < QUALITY_BLOCK_THRESHOLD:
+            return {"File": os.path.basename(file_path), "Error": f"Data quality {q['quality_score']} below block threshold"}
 
         if "Timestamp" in df.columns:
             df["Timestamp"] = pd.to_datetime(df["Timestamp"])
@@ -58,6 +65,12 @@ def run_worker(args):
             "Sharpe Ratio": safe_stat(stats, "Sharpe Ratio"),
             "Sortino Ratio": safe_stat(stats, "Sortino Ratio"),
             "Calmar Ratio": safe_stat(stats, "Calmar Ratio"),
+            # Buried metrics backtesting.py already computes (#5):
+            "Profit Factor": safe_stat(stats, "Profit Factor"),
+            "Expectancy [%]": safe_stat(stats, "Expectancy [%]"),
+            "SQN": safe_stat(stats, "SQN"),
+            "Buy & Hold Return [%]": safe_stat(stats, "Buy & Hold Return [%]"),
+            "Data Quality": q["quality_score"],
             "Dividends Earned [₹]": getattr(strat_instance, "dividends_earned", 0.0) if strat_instance else 0.0,
             "Rights Premium Earned [₹]": getattr(strat_instance, "rights_premium_earned", 0.0) if strat_instance else 0.0,
             "Equity Final [₹]": safe_stat(stats, "Equity Final [$]"),

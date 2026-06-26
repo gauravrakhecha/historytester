@@ -234,7 +234,7 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
         if strat_dir in ["Long & Short", "Long Only"]:
             code += "        if self.position.is_long:\n"
             code += "            if getattr(self, '_prev_position_size', 0) <= 0:\n"
-            code += "                self._highest_since_entry = self.position.entry_price\n"
+            code += "                self._highest_since_entry = self.trades[-1].entry_price if self.trades else self.data.Close[-1]\n"
             code += "            else:\n"
             code += "                self._highest_since_entry = max(getattr(self, '_highest_since_entry', self.data.Close[-1]), self.data.High[-1])\n"
             if has_zones:
@@ -242,15 +242,15 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
                 code += "            if getattr(self, '_zone_tight_sl', 0) > 0: _eff_trail = max(_eff_trail, self._zone_tight_sl / 100)\n"
                 code += "            if _eff_trail > 0:\n"
                 code += "                trail_stop = self._highest_since_entry * (1 - _eff_trail)\n"
-                code += "                if self.data.Close[-1] <= trail_stop: self.position.close()\n"
+                code += "                if self.data.Low[-1] <= trail_stop: self.position.close()\n"
             elif rm_mode == "Trailing Stop Loss (%)":
                 code += f"            trail_stop = self._highest_since_entry * (1 - {trail_pct / 100})\n"
-                code += "            if self.data.Close[-1] <= trail_stop: self.position.close()\n"
+                code += "            if self.data.Low[-1] <= trail_stop: self.position.close()\n"
 
         if strat_dir in ["Long & Short", "Short Only"]:
             code += "        if self.position.is_short:\n"
             code += "            if getattr(self, '_prev_position_size', 0) <= 0:\n"
-            code += "                self._lowest_since_entry = self.position.entry_price\n"
+            code += "                self._lowest_since_entry = self.trades[-1].entry_price if self.trades else self.data.Close[-1]\n"
             code += "            else:\n"
             code += "                self._lowest_since_entry = min(getattr(self, '_lowest_since_entry', self.data.Close[-1]), self.data.Low[-1])\n"
             if has_zones:
@@ -258,10 +258,10 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
                 code += "            if getattr(self, '_zone_tight_sl', 0) > 0: _eff_trail = max(_eff_trail, self._zone_tight_sl / 100)\n"
                 code += "            if _eff_trail > 0:\n"
                 code += "                trail_stop = self._lowest_since_entry * (1 + _eff_trail)\n"
-                code += "                if self.data.Close[-1] >= trail_stop: self.position.close()\n"
+                code += "                if self.data.High[-1] >= trail_stop: self.position.close()\n"
             elif rm_mode == "Trailing Stop Loss (%)":
                 code += f"            trail_stop = self._lowest_since_entry * (1 + {trail_pct / 100})\n"
-                code += "            if self.data.Close[-1] >= trail_stop: self.position.close()\n"
+                code += "            if self.data.High[-1] >= trail_stop: self.position.close()\n"
 
     code += "        self._prev_position_size = self.position.size\n"
     return code

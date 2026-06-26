@@ -1,5 +1,47 @@
 # Changelog
 
+## v5.0 — Honest Numbers (2026-06-26)
+
+Built on the v4 modular package (`modular history/`). This release makes every reported number
+**trustworthy** — validated out-of-sample, charged with real India statutory costs, and gated on
+data quality — plus institutional reporting via QuantStats. Driven by a multi-agent specialist +
+quant review (`modular history/ROADMAP_v5.md`).
+
+### Honest results
+- **Out-of-sample validation (#1):** the optimizer now tunes on the in-sample first 70% and
+  reports the **honest out-of-sample** result on the held-out tail, with an In-Sample vs
+  Out-of-Sample comparison + degradation % and an explicit overfitting warning.
+- **Data-quality gate (#3):** `quality.validate()` is now enforced before every backtest (single
+  + batch worker) — blocks broken data (high<low, dup timestamps), warns on marginal, stored per run.
+
+### ₹-accurate costs
+- **Real India charge engine (#2):** a Decimal post-trade pass itemising STT / stamp / exchange /
+  SEBI / brokerage / 18% GST per leg by segment (Equity Intraday / Delivery / Futures), shown as a
+  Gross-vs-Net P&L panel with a per-charge breakdown.
+
+### Reporting depth
+- **QuantStats (#4):** institutional HTML tearsheet + VaR/CVaR/Kelly/volatility risk block behind
+  an Advanced expander (intraday equity resampled to daily to avoid inflated Sharpe/CAGR).
+- **Surfaced buried metrics (#5):** Profit Factor, Expectancy, SQN, Buy & Hold — already computed
+  by backtesting.py but previously hidden — now in tiles, the batch table and the DB.
+- **Results leaderboard (#6):** compare runs side-by-side with overlaid equity curves and
+  plain-language 🟢🟡🔴 health verdicts (replaces the raw JSON dump). Equity curves are persisted.
+
+### Correctness fixes
+- **Trailing stop (#7):** now triggers **intrabar** (Low/High) instead of on Close — and fixes a
+  latent v3 crash (`position.entry_price` does not exist in backtesting.py, so trailing stops were
+  broken in the original).
+- **Resampling:** carries Dividend/Rights cashflows into higher timeframes (#8) and anchors bins
+  per trading session so no bar bridges the overnight gap (#10).
+- **Reproducibility hashes (#9):** dataset / config / strategy / code hashes stored on every run.
+- **Batch** relabeled as *independent single-asset runs* (not a combined portfolio).
+
+### Verified
+- pytest 18/18 (parity still byte-exact); Streamlit AppTest renders all 13 pages and runs a
+  backtest through the UI (21 metrics); deep flows (plotter/builder/settings/optimizer-IS-OOS) green.
+
+---
+
 ## v4.0 — Modular Edition (2026-06-25)
 
 A full architectural refactor of the single-file `upstox_app.py` into a modular, faster, tested

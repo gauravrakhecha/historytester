@@ -44,7 +44,34 @@ _SCHEMA = [
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
 ]
 
+# Columns added in v5 (NOW bucket). Added idempotently to an existing backtests table so old
+# DBs keep working: buried metrics (#5), data-quality (#3), real charges (#2), repro hashes (#9),
+# and a daily equity curve for the Results leaderboard / tearsheets (#4/#6).
+_BACKTEST_EXTRA_COLS = {
+    "profit_factor": "REAL",
+    "expectancy_pct": "REAL",
+    "sqn": "REAL",
+    "buy_hold_return_pct": "REAL",
+    "quality_score": "REAL",
+    "segment": "TEXT",
+    "net_return_pct": "REAL",
+    "total_charges": "REAL",
+    "dataset_hash": "TEXT",
+    "config_hash": "TEXT",
+    "strategy_hash": "TEXT",
+    "code_hash": "TEXT",
+    "equity_curve_json": "TEXT",
+}
+
 _initialised = False
+
+
+def _migrate(conn) -> None:
+    """Add any missing backtests columns (idempotent)."""
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(backtests)").fetchall()}
+    for col, typ in _BACKTEST_EXTRA_COLS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE backtests ADD COLUMN {col} {typ}")
 
 
 @contextmanager
@@ -68,7 +95,28 @@ def init_db() -> None:
     with connect() as conn:
         for stmt in _SCHEMA:
             conn.execute(stmt)
+        _migrate(conn)
     _initialised = True
+
+
+# Full ordered column set the inserts/leaderboard use (legacy + v5 extras).
+_BACKTEST_COLUMNS = [
+    "strategy_name", "symbol", "timeframe", "start_date", "end_date", "parameters",
+    "return_pct", "max_drawdown_pct", "win_rate_pct", "num_trades", "sharpe_ratio",
+    "plot_file", "full_stats", "strategy_config",
+] + list(_BACKTEST_EXTRA_COLS.keys())
+
+
+def insert_backtest(row: dict) -> None:
+    """Insert one backtests row from a dict (missing keys default to None). Single-writer safe."""
+    init_db()
+    cols = _BACKTEST_COLUMNS
+    placeholders = ", ".join("?" for _ in cols)
+    vals = [row.get(c) for c in cols]
+    with connect() as conn:
+        conn.execute(
+            f"INSERT INTO backtests ({', '.join(cols)}) VALUES ({placeholders})", vals
+        )
 
 
 # --- download log -----------------------------------------------------------

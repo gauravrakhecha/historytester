@@ -77,6 +77,64 @@ def render_plotly_backtest(out_df: pd.DataFrame, trades) -> go.Figure:
     return fig
 
 
+def equity_overlay(curves: dict) -> go.Figure:
+    """Overlay multiple daily-equity curves (label -> pd.Series) for the Results leaderboard."""
+    fig = go.Figure()
+    for label, series in curves.items():
+        if series is None or len(series) == 0:
+            continue
+        fig.add_trace(go.Scatter(x=list(series.index), y=list(series.values), mode="lines", name=label))
+    fig.update_layout(
+        title="Equity curves (compared runs)",
+        template="plotly_dark", height=420, margin=dict(l=20, r=20, t=40, b=20),
+        hovermode="x unified", yaxis_title="Equity (₹)",
+    )
+    return fig
+
+
+# --- QuantStats (optional dependency, guarded per CLAUDE.md Section 11) -------
+try:
+    import quantstats as _qs  # noqa: N813
+    QUANTSTATS_AVAILABLE = True
+except Exception:  # noqa: BLE001
+    QUANTSTATS_AVAILABLE = False
+
+
+def quantstats_tearsheet_html(returns: pd.Series, benchmark: pd.Series | None = None) -> str | None:
+    """Full QuantStats HTML tearsheet for a (daily) returns series, or None if unavailable/empty."""
+    if not QUANTSTATS_AVAILABLE or returns is None or len(returns) < 2:
+        return None
+    import io
+
+    buf = io.StringIO()
+    try:
+        _qs.reports.html(returns, benchmark=benchmark, output=buf, title="Strategy Tearsheet")
+        return buf.getvalue()
+    except Exception:
+        try:
+            _qs.reports.html(returns, output=buf, title="Strategy Tearsheet")
+            return buf.getvalue()
+        except Exception:
+            return None
+
+
+def quantstats_metrics(returns: pd.Series) -> dict:
+    """A curated risk block QuantStats can produce from a daily returns series."""
+    if not QUANTSTATS_AVAILABLE or returns is None or len(returns) < 2:
+        return {}
+    s = _qs.stats
+    out = {}
+    try:
+        out["VaR (95%)"] = round(float(s.value_at_risk(returns)) * 100, 2)
+        out["CVaR (95%)"] = round(float(s.cvar(returns)) * 100, 2)
+        out["Volatility (ann.)"] = round(float(s.volatility(returns)) * 100, 2)
+        out["Kelly"] = round(float(s.kelly_criterion(returns)), 3)
+        out["Tail ratio"] = round(float(s.tail_ratio(returns)), 2)
+    except Exception:
+        pass
+    return out
+
+
 def feature_importance_bar(feat_imp_df: pd.DataFrame) -> go.Figure:
     """Horizontal XGBoost feature-importance bar chart."""
     fig = go.Figure(

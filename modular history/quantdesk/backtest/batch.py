@@ -16,7 +16,6 @@ from typing import Callable, List, Optional
 import pandas as pd
 
 from quantdesk.backtest.worker import run_worker
-from quantdesk.core.db import connect
 from quantdesk.core.logging import get_logger
 
 log = get_logger("backtest.batch")
@@ -100,21 +99,25 @@ def extract_trades(
     return all_trades
 
 
-def save_batch_to_db(results: List[dict], strategy_label: str, indicators: list) -> None:
-    """Persist each batch result row to the ``backtests`` table (parity with the original)."""
+def save_batch_to_db(results: List[dict], strategy_label: str, indicators: list, code: str = "") -> None:
+    """Persist each batch result row to the ``backtests`` table, incl. buried metrics (#5),
+    data-quality (#3) and repro hashes (#9). One strategy/code hash applies to the whole batch."""
+    from quantdesk.core import db, reproducibility as repro
+
     strat_config_json = json.dumps({"indicators": indicators})
-    with connect() as conn:
-        c = conn.cursor()
-        for res in results:
-            c.execute(
-                """INSERT INTO backtests
-                   (strategy_name, symbol, timeframe, start_date, end_date, parameters,
-                    return_pct, max_drawdown_pct, win_rate_pct, num_trades, sharpe_ratio,
-                    plot_file, full_stats, strategy_config)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    strategy_label, res["File"], "Batch", "", "", "{}",
-                    res["Return [%]"], res["Max. Drawdown [%]"], res["Win Rate [%]"],
-                    res["Total Trades"], res["Sharpe Ratio"], "none", "{}", strat_config_json,
-                ),
-            )
+    config_hash = repro.hash_config({"indicators": indicators})
+    strategy_hash = repro.hash_text(code) if code else None
+    code_hash = repro.code_version()
+    for res in results:
+        db.insert_backtest({
+            "strategy_name": strategy_label, "symbol": res["File"], "timeframe": "Batch",
+            "start_date": "", "end_date": "", "parameters": "{}",
+            "return_pct": res["Return [%]"], "max_drawdown_pct": res["Max. Drawdown [%]"],
+            "win_rate_pct": res["Win Rate [%]"], "num_trades": res["Total Trades"],
+            "sharpe_ratio": res["Sharpe Ratio"], "plot_file": "none",
+            "full_stats": "{}", "strategy_config": strat_config_json,
+            "profit_factor": res.get("Profit Factor"), "expectancy_pct": res.get("Expectancy [%]"),
+            "sqn": res.get("SQN"), "buy_hold_return_pct": res.get("Buy & Hold Return [%]"),
+            "quality_score": res.get("Data Quality"),
+            "config_hash": config_hash, "strategy_hash": strategy_hash, "code_hash": code_hash,
+        })

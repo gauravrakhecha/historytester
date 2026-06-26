@@ -89,6 +89,47 @@ def enrich_trades(trades: pd.DataFrame, strat_instance, variables) -> pd.DataFra
     return trades
 
 
+def extract_scalar_metrics(stats) -> dict:
+    """Curated scalar metrics, INCLUDING ones backtesting.py computes but the app buried (#5):
+    Profit Factor, Expectancy [%], SQN, Buy & Hold Return [%]."""
+    return {
+        "return_pct": safe_stat(stats, "Return [%]"),
+        "ann_return_pct": annualized_return(stats),
+        "max_drawdown_pct": safe_stat(stats, "Max. Drawdown [%]"),
+        "win_rate_pct": safe_stat(stats, "Win Rate [%]"),
+        "num_trades": int(safe_stat(stats, "# Trades")),
+        "sharpe": safe_stat(stats, "Sharpe Ratio"),
+        "sortino": safe_stat(stats, "Sortino Ratio"),
+        "calmar": safe_stat(stats, "Calmar Ratio"),
+        "profit_factor": safe_stat(stats, "Profit Factor"),
+        "expectancy_pct": safe_stat(stats, "Expectancy [%]"),
+        "sqn": safe_stat(stats, "SQN"),
+        "buy_hold_return_pct": safe_stat(stats, "Buy & Hold Return [%]"),
+    }
+
+
+def _equity_series(stats) -> pd.Series:
+    eq = stats["_equity_curve"]["Equity"]
+    eq.index = pd.to_datetime(eq.index)
+    return eq
+
+
+def equity_returns(stats, resample_daily: bool = True) -> pd.Series:
+    """Returns series for QuantStats. CRITICAL: QuantStats annualises assuming DAILY periodicity,
+    so intraday equity is resampled to daily first (feeding 5-min returns inflates Sharpe/CAGR)."""
+    eq = _equity_series(stats)
+    if resample_daily:
+        eq = eq.resample("1D").last().dropna()
+    rets = eq.pct_change().dropna()
+    rets.name = "Strategy"
+    return rets
+
+
+def equity_curve_daily(stats) -> pd.Series:
+    """Daily equity series (for persistence + the Results leaderboard overlay)."""
+    return _equity_series(stats).resample("1D").last().dropna()
+
+
 def clean_stats_series(stats, init_cash, strat_instance) -> pd.Series:
     """Drop internals, format dates, add Initial Capital + dividends/rights, rename $→₹."""
     clean = stats.drop(["_strategy", "_equity_curve", "_trades"], errors="ignore")

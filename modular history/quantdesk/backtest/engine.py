@@ -34,15 +34,35 @@ def run_single(
     opt_kwargs: Optional[dict] = None,
     maximize: Optional[str] = None,
     n_trials: int = 50,
+    oos_fraction: float = 0.3,
     progress_cb: Optional[Callable[[float, str], None]] = None,
 ):
-    """Run one backtest (optionally optimised). Returns ``(stats, best_params)``.
+    """Run one backtest. Returns ``(stats, info)``.
 
-    ``best_params`` is ``None`` for a plain run. ``stats`` is the backtesting.py result Series
-    (carrying ``_strategy`` / ``_equity_curve`` / ``_trades``).
+    Plain run: ``info`` is ``None`` and ``stats`` is the full-period result.
+
+    Optimised run (#1 — honest results): the optimiser tunes ONLY on the in-sample first
+    ``1-oos_fraction`` of the data; the frozen best params are then evaluated once on the
+    held-out out-of-sample tail. The **OOS** stats become the headline ``stats`` (what the
+    strategy would realistically have done on unseen data), and ``info`` carries
+    ``{best_params, is_stats, oos_stats, split_index, oos_fraction}`` for the comparison panel.
+    If the OOS tail is too small, it falls back to a full-period optimise (``info['no_oos']``).
     """
-    bt = make_backtest(df, code, init_cash, total_commission, margin)
     if optimize_mode and opt_kwargs:
-        stats, best = _opt.optimize(bt, optimize_mode, opt_kwargs, maximize, n_trials, progress_cb)
-        return stats, best
-    return bt.run(), None
+        split = int(len(df) * (1.0 - oos_fraction))
+        is_df, oos_df = df.iloc[:split], df.iloc[split:]
+        if len(is_df) < 50 or len(oos_df) < 30:
+            bt = make_backtest(df, code, init_cash, total_commission, margin)
+            stats, best = _opt.optimize(bt, optimize_mode, opt_kwargs, maximize, n_trials, progress_cb)
+            return stats, {"best_params": best, "no_oos": True}
+        bt_is = make_backtest(is_df, code, init_cash, total_commission, margin)
+        _, best = _opt.optimize(bt_is, optimize_mode, opt_kwargs, maximize, n_trials, progress_cb)
+        # Re-evaluate the FROZEN best params on each segment with a fresh compiled class.
+        is_stats = make_backtest(is_df, code, init_cash, total_commission, margin).run(**best)
+        oos_stats = make_backtest(oos_df, code, init_cash, total_commission, margin).run(**best)
+        info = {
+            "best_params": best, "is_stats": is_stats, "oos_stats": oos_stats,
+            "split_index": split, "oos_fraction": oos_fraction, "no_oos": False,
+        }
+        return oos_stats, info
+    return make_backtest(df, code, init_cash, total_commission, margin).run(), None

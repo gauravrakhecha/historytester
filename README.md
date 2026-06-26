@@ -5,12 +5,15 @@ brokers (Upstox, Zerodha, Dhan) and build + backtest + optimise + ML-mine algori
 strategies — **without writing a line of code**.
 
 > **Two editions in this repo:**
-> - **v4 — Modular Edition** (recommended): the same app refactored into a fast, modular,
->   testable package under [`modular history/`](modular%20history/). Start here for new work.
+> - **Modular Edition** (recommended, **latest = v5**): a fast, modular, tested package under
+>   [`modular history/`](modular%20history/). v4 refactored the monolith 1:1; **v5** adds honest
+>   out-of-sample validation, real India charges, a data-quality gate, and QuantStats reporting.
+>   Start here for new work.
 > - **v3 — Single-file** (`upstox_app.py`): the original 3,207-line app, retained as reference.
 >
-> v4 is **feature-for-feature identical** to v3 (verified by a numeric parity harness) — just
-> faster, modular, and with several bug fixes. See the [Changelog](CHANGELOG.md).
+> The v4 refactor was feature-for-feature identical to v3 (numeric parity harness); **v5** then
+> makes every reported number trustworthy. See the [Changelog](CHANGELOG.md) and
+> [`modular history/ROADMAP_v5.md`](modular%20history/ROADMAP_v5.md).
 
 ---
 
@@ -51,6 +54,21 @@ Both open a Streamlit dashboard at `http://localhost:8501`.
 - Backtest results database + ML Pattern Finder (XGBoost importance + decision-tree rules).
 
 ---
+
+## 🆕 What's new in v5 — *Honest Numbers*
+
+- **Out-of-sample validation** — the optimizer tunes on 70% and reports the honest out-of-sample
+  result on unseen data, with an IS-vs-OOS comparison + overfitting warning.
+- **Real India charges** — Decimal STT/stamp/exchange/SEBI/brokerage/18% GST per segment, shown as
+  a Gross-vs-Net P&L panel.
+- **Data-quality gate** enforced before every backtest (warn/block).
+- **QuantStats** institutional tearsheet + VaR/CVaR/Kelly risk block (HTML export).
+- **Surfaced metrics** (Profit Factor, Expectancy, SQN, Buy & Hold) + a **Results leaderboard**
+  with overlaid equity curves and plain-language 🟢🟡🔴 verdicts.
+- **Fixes** — intrabar trailing stop (and a latent crash), dividends carried through resampling,
+  per-session resample anchoring, reproducibility hashes on every run.
+
+Full feature-gap analysis & roadmap: [`modular history/ROADMAP_v5.md`](modular%20history/ROADMAP_v5.md).
 
 ## 🆕 What's new in v4
 
