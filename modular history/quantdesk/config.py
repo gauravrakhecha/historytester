@@ -53,6 +53,8 @@ DEFAULTS = {
     "initial_capital": "100000",
     "plot_dir": str(PLOTS_DIR),
     "parquet_data_dir": DEFAULT_DATA_DIR,
+    "save_format": "Both",   # Parquet only | CSV only | Both
+    "csv_data_dir": "",       # optional separate folder for CSV files (blank = alongside parquet)
 }
 
 # --- DATA-QUALITY GATE THRESHOLDS (Standing Rule 0.2a) ---------------------

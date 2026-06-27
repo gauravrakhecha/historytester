@@ -9,6 +9,7 @@ import streamlit as st
 from quantdesk.brokers.downloader import run_async_download
 from quantdesk.core.db import log_download
 from quantdesk.data.resample import resample_dataframe
+from quantdesk.data.saver import format_summary, primary_path, save_frame
 from quantdesk.ui import components as C
 
 
@@ -19,7 +20,7 @@ def render(ctx):
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("1. Asset Configuration")
-        selected_row = C.render_instrument_selector(ctx.master_df, "master")
+        selected_row = C.render_instrument_selector(ctx.master_df, "master", ctx.master_meta)
         if selected_row is not None:
             st.code(f"Key: {selected_row['instrument_key']}\nSymbol: {selected_row['tradingsymbol']}\nClass: {selected_row['asset_class']}")
 
@@ -42,7 +43,7 @@ def render(ctx):
             with rc2:
                 tf_end = st.number_input("End Range (Mins)", min_value=1, value=58)
 
-        local_path = st.text_input("📁 Base Save Folder", value=ctx.default_parquet_dir)
+        local_path, csv_dir = C.render_save_folders("master", ctx.default_parquet_dir, "📁 Parquet Base Save Folder")
 
     if st.button("🚀 Download Master & Extract Timeframes", type="primary", use_container_width=True):
         if selected_row is None:
@@ -83,8 +84,9 @@ def render(ctx):
                     df_resampled = resample_dataframe(df_master, tf)
                     filename = f"{safe_sym}_{tf}Min_{from_date}_to_{to_date}.parquet"
                     save_path = os.path.join(symbol_dir, filename)
-                    df_resampled.to_parquet(save_path, engine="pyarrow")
-                    log_download(ctx.broker, selected_row["tradingsymbol"], selected_row["instrument_key"], f"{tf} Minute", from_date, to_date, save_path)
+                    written = save_frame(df_resampled, save_path, local_path, csv_dir)
+                    log_download(ctx.broker, selected_row["tradingsymbol"], selected_row["instrument_key"], f"{tf} Minute", from_date, to_date, primary_path(written, save_path))
 
-                status.success(f"🎉 Fully Complete! Generated {len(tfs)} timeframe files locally inside `{symbol_dir}`")
+                status.success(f"🎉 Fully Complete! Generated {len(tfs)} timeframe files for each enabled format.")
+                st.caption(format_summary(csv_dir) + f"  Parquet symbol folder: `{symbol_dir}`")
                 st.dataframe(df_master.head(), use_container_width=True)

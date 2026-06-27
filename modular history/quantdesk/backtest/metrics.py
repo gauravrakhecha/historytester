@@ -49,9 +49,9 @@ def yearly_performance(equity_curve: pd.DataFrame) -> pd.DataFrame:
         start_eq = group["Equity"].iloc[0]
         end_eq = group["Equity"].iloc[-1]
         ret = ((end_eq / start_eq) - 1) * 100
-        mdd = group["DrawdownPct"].min() * 100
-        if mdd > 0:
-            mdd = -mdd
+        # backtesting.py DrawdownPct is a NON-NEGATIVE magnitude, so the worst is the MAX
+        # (using .min() reported ~0% for every year). Present as a negative number.
+        mdd = -group["DrawdownPct"].max() * 100
         rows.append({"Year": str(year), "Return [%]": round(ret, 2), "Max Drawdown [%]": round(mdd, 2)})
     return pd.DataFrame(rows).set_index("Year") if rows else pd.DataFrame()
 

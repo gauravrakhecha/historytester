@@ -91,10 +91,16 @@ def mine_patterns(
     X = ml_df[feature_cols]
     X.columns = [re.sub(r"[\[\]<>]", "_", col) for col in X.columns]
 
+    # backtesting.py per-trade frames use 'ReturnPct' (a fraction); the overall stats use
+    # 'Return [%]' (a percent). Resolve defensively and pick the matching thresholds.
+    ret_col = "ReturnPct" if "ReturnPct" in ml_df.columns else "Return [%]"
+    rets = ml_df[ret_col]
+    win_thresh = 0.0
+    hi_thresh = 0.01 if ret_col == "ReturnPct" else 1.0  # ">1%" => 0.01 as a fraction
     if target_metric == "Win (Return > 0)":
-        y = (ml_df["Return [%]"] > 0).astype(int)
+        y = (rets > win_thresh).astype(int)
     else:
-        y = (ml_df["Return [%]"] > 1.0).astype(int)
+        y = (rets > hi_thresh).astype(int)
 
     out["baseline_win_rate"] = float(y.mean() * 100)
 

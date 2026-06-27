@@ -16,6 +16,7 @@ from quantdesk.brokers.upstox import (
 )
 from quantdesk.core.db import log_download
 from quantdesk.data.resample import resample_dataframe
+from quantdesk.data.saver import format_summary, primary_path, save_frame
 from quantdesk.ui import components as C
 
 
@@ -157,7 +158,14 @@ def render(ctx):
                     with r2:
                         tf_end_opt = st.number_input("End (Mins)", min_value=1, value=15, key="opt_end")
 
-            local_path = st.text_input("📂 Save to Folder (Leave blank for ZIP)", value=ctx.default_parquet_dir, key="opt_local_path")
+            opt_csv_dir = None
+            local_path = st.text_input("📂 Parquet Save Folder (Leave blank for ZIP)", value=ctx.default_parquet_dir, key="opt_local_path")
+            if local_path:
+                from quantdesk.core import settings_repo as _sr
+                if _sr.get("save_format", "Both") in ("CSV only", "Both"):
+                    opt_csv_dir = st.text_input("📁 CSV Save Folder (blank = alongside Parquet)",
+                                                value=_sr.get("csv_data_dir", ""), key="opt_csv_dir")
+                st.caption(format_summary(opt_csv_dir))
 
             if st.button("🚀 Download & Extract Timeframes", use_container_width=True, type="primary"):
                 items = bulk_df.to_dict("records")
@@ -191,8 +199,8 @@ def render(ctx):
                                     tf_folder = os.path.join(base_folder, f"{tf}Min")
                                     os.makedirs(tf_folder, exist_ok=True)
                                     f_path = os.path.join(tf_folder, f"{c['trading_symbol']}.parquet")
-                                    df_tf.to_parquet(f_path, engine="pyarrow")
-                                    log_download("Upstox", c["trading_symbol"], c["instrument_key"], f"{tf} Minute", opt_from_d, opt_to_d, f_path)
+                                    written = save_frame(df_tf, f_path, local_path, opt_csv_dir)
+                                    log_download("Upstox", c["trading_symbol"], c["instrument_key"], f"{tf} Minute", opt_from_d, opt_to_d, primary_path(written, f_path))
                                     saved_count += 1
                         status.success(f"✅ Saved {saved_count} total Parquet files across {len(tfs_opt)} timeframes inside {base_folder}")
                     except Exception as e:

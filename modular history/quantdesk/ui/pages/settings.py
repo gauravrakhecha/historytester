@@ -41,17 +41,32 @@ def render(ctx):
                 """
             )
         with col2:
-            st.subheader("Paths")
+            st.subheader("Paths & Data Format")
             plot_dir = st.text_input("Plot Save Directory", value=existing.get("plot_dir", "./plots"))
             parquet_data_dir = st.text_input(
                 "Parquet Data Directory",
                 value=existing.get("parquet_data_dir", ctx.default_parquet_dir),
-                help="Default path for all data downloads and bulk operations.",
+                help="Default path for all data downloads and bulk operations (Parquet).",
+            )
+            _fmts = ["Parquet only", "CSV only", "Both"]
+            _cur_fmt = existing.get("save_format", "Both")
+            save_format = st.selectbox(
+                "Download Save Format", _fmts,
+                index=_fmts.index(_cur_fmt) if _cur_fmt in _fmts else 2,
+                help="What every downloader writes. 'Both' saves .parquet AND .csv.",
+            )
+            csv_data_dir = st.text_input(
+                "CSV Data Directory (optional)",
+                value=existing.get("csv_data_dir", ""),
+                help="Separate folder for CSV files. Leave blank to save CSVs alongside the Parquet "
+                     "files (same folder). Only used when the format includes CSV.",
             )
 
         if st.form_submit_button("Save Settings"):
             os.makedirs(plot_dir, exist_ok=True)
             os.makedirs(parquet_data_dir, exist_ok=True)
+            if csv_data_dir:
+                os.makedirs(csv_data_dir, exist_ok=True)
             settings_repo.save(
                 {
                     "brokerage_commission": commission,
@@ -60,6 +75,8 @@ def render(ctx):
                     "plot_dir": plot_dir,
                     "parquet_data_dir": parquet_data_dir,
                     "initial_capital": initial_capital,
+                    "save_format": save_format,
+                    "csv_data_dir": csv_data_dir,
                 }
             )
             st.success("Settings saved successfully!")

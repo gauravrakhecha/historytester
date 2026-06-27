@@ -9,6 +9,7 @@ import streamlit as st
 from quantdesk.brokers.downloader import run_async_download
 from quantdesk.core.db import log_download
 from quantdesk.data.resample import resample_dataframe
+from quantdesk.data.saver import format_summary, primary_path, save_frame
 from quantdesk.ui import components as C
 
 
@@ -18,7 +19,7 @@ def render(ctx):
 
     with col1:
         st.subheader("1. Asset Selection")
-        selected_row = C.render_instrument_selector(ctx.master_df, "single")
+        selected_row = C.render_instrument_selector(ctx.master_df, "single", ctx.master_meta)
 
     with col2:
         st.subheader("2. Settings")
@@ -37,7 +38,7 @@ def render(ctx):
         today = datetime.date.today()
         from_date = st.date_input("From Date", today - datetime.timedelta(days=7))
         to_date = st.date_input("To Date", today)
-        local_path = st.text_input("📁 Local Save Path", value=ctx.default_parquet_dir)
+        local_path, csv_dir = C.render_save_folders("single", ctx.default_parquet_dir, "📁 Parquet Save Folder (blank = CSV download button)")
 
     if st.button("⚡ Fetch Fast", use_container_width=True):
         if selected_row is None:
@@ -62,9 +63,9 @@ def render(ctx):
                     full_dir = os.path.join(local_path, safe_name, save_label)
                     os.makedirs(full_dir, exist_ok=True)
                     full_path = os.path.join(full_dir, filename)
-                    df_hist.to_parquet(full_path, engine="pyarrow")
-                    log_download(ctx.broker, selected_row["tradingsymbol"], selected_row["instrument_key"], save_label, from_date, to_date, full_path)
-                    st.success(f"✅ Saved to: {full_path}")
+                    written = save_frame(df_hist, full_path, local_path, csv_dir)
+                    log_download(ctx.broker, selected_row["tradingsymbol"], selected_row["instrument_key"], save_label, from_date, to_date, primary_path(written, full_path))
+                    st.success("✅ Saved: " + " , ".join(written))
                 else:
                     st.download_button(
                         "💾 Download CSV",

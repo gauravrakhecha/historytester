@@ -112,7 +112,8 @@ class StrategyConfig:
     lot_size: int = 1
 
     def to_dict(self) -> dict:
-        """Matches the original export_data shape (preset JSON)."""
+        """Preset JSON shape. Superset of the original: also persists position sizing so a
+        reloaded preset doesn't silently revert to defaults (Fixed ₹50000, lot 1)."""
         return {
             "indicators": self.indicators,
             "buy_rules": self.buy_rules,
@@ -120,6 +121,9 @@ class StrategyConfig:
             "no_trade_rules": self.no_trade_rules,
             "range_zones": self.range_zones,
             "risk_management": self.risk_management.to_dict(),
+            "pos_size_type": self.pos_size_type,
+            "fixed_pos_value": self.fixed_pos_value,
+            "lot_size": self.lot_size,
         }
 
     @classmethod
@@ -131,6 +135,10 @@ class StrategyConfig:
             no_trade_rules=d.get("no_trade_rules", []),
             range_zones=d.get("range_zones", []),
             risk_management=RiskManagement.from_dict(d.get("risk_management")),
+            # back-compat: older presets lack these -> fall back to the dataclass defaults
+            pos_size_type=d.get("pos_size_type", "Fixed Value per Trade (₹) (Default)"),
+            fixed_pos_value=d.get("fixed_pos_value", 50000.0),
+            lot_size=d.get("lot_size", 1),
         )
 
     def selectable_columns(self) -> List[str]:

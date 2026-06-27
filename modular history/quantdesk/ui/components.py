@@ -34,6 +34,9 @@ NAV = [
 ]
 
 
+_CLASS_ORDER = ["Stock", "ETF", "Index", "Futures", "Options", "Commodity", "Currency", "Other"]
+
+
 @dataclass
 class PageContext:
     broker: str
@@ -41,6 +44,24 @@ class PageContext:
     is_authenticated: bool
     master_df: pd.DataFrame
     default_parquet_dir: str
+    master_meta: dict | None = None
+
+
+def build_master_meta(master_df: pd.DataFrame) -> dict:
+    """Precompute (ONCE per session) the per-asset-class split + an uppercased search column.
+
+    PERF (#5): the selector previously re-scanned the full ~141k-row frame on every rerun
+    (8× ``.unique()`` + a full-frame ``.str.contains`` per keystroke). Doing the split once here
+    turns each rerun's filter into an O(class-size) op on a small slice.
+    """
+    present = set(master_df["asset_class"].unique())
+    classes = [c for c in _CLASS_ORDER if c in present]
+    by_class = {}
+    for c in classes:
+        sub = master_df[master_df["asset_class"] == c].copy()
+        sub["_sym_u"] = sub["tradingsymbol"].astype(str).str.upper()
+        by_class[c] = sub
+    return {"classes": classes, "by_class": by_class}
 
 
 def make_progress(pbar):
@@ -119,20 +140,51 @@ def render_auth_sidebar() -> tuple[str, dict, bool]:
     return selected_broker, st.session_state.auth_dict, is_auth
 
 
-def render_instrument_selector(master_df: pd.DataFrame, key_prefix: str):
-    """Filter the master list dynamically (asset class -> search -> select). Returns a row or None."""
+def render_save_folders(key_prefix: str, default_parquet: str, parquet_label: str = "📁 Parquet Save Folder"):
+    """Render the Parquet folder input + (when the format includes CSV) a CSV folder input.
+
+    Returns ``(parquet_dir, csv_dir)``. ``csv_dir`` is ``None`` when the format is Parquet-only,
+    otherwise the entered string (``''`` means 'save CSV alongside the Parquet'). Lets the user set
+    BOTH destinations right on the download page instead of only in Settings.
+    """
+    from quantdesk.core import settings_repo
+    from quantdesk.data.saver import format_summary
+
+    parquet_dir = st.text_input(parquet_label, value=default_parquet, key=f"{key_prefix}_pq_dir")
+    fmt = settings_repo.get("save_format", "Both")
+    csv_dir = None
+    if fmt in ("CSV only", "Both"):
+        csv_dir = st.text_input(
+            "📁 CSV Save Folder (blank = alongside Parquet)",
+            value=settings_repo.get("csv_data_dir", ""),
+            key=f"{key_prefix}_csv_dir",
+        )
+    st.caption(format_summary(csv_dir))
+    return parquet_dir, csv_dir
+
+
+def render_instrument_selector(master_df: pd.DataFrame, key_prefix: str, meta: dict | None = None):
+    """Filter the master list dynamically (asset class -> search -> select). Returns a row or None.
+
+    Uses the precomputed ``meta`` (per-class slices + uppercased search column) so it never
+    re-scans the full frame per rerun. Falls back to building meta on the fly if not supplied.
+    """
+    if meta is None:
+        meta = build_master_meta(master_df)
     col_a, col_b = st.columns(2)
-    classes = ["Stock", "ETF", "Index", "Futures", "Options", "Commodity", "Currency", "Other"]
-    avail_classes = [c for c in classes if c in master_df["asset_class"].unique()]
+    avail_classes = meta["classes"]
+    if not avail_classes:
+        st.warning("No instruments available.")
+        return None
 
     with col_a:
         aclass = st.selectbox("1. Filter by Asset Class", avail_classes, key=f"{key_prefix}_class")
     with col_b:
         search_q = st.text_input("2. Search Ticker / Symbol", placeholder="e.g. RELIANCE", key=f"{key_prefix}_search")
 
-    filtered = master_df[master_df["asset_class"] == aclass]
+    filtered = meta["by_class"].get(aclass, master_df.iloc[0:0])
     if search_q:
-        filtered = filtered[filtered["tradingsymbol"].str.contains(search_q.upper(), na=False)]
+        filtered = filtered[filtered["_sym_u"].str.contains(search_q.upper(), na=False)]
     if filtered.empty:
         st.warning("No instruments match your search.")
         return None

@@ -93,29 +93,41 @@ def _render_isoos(info: dict) -> None:
     st.dataframe(pd.DataFrame(rows).set_index("Metric"), use_container_width=True)
 
 
-def _render_charges_panel(stats, trades, segment: str, init_cash: float) -> dict:
-    """Real India statutory charges as a post-trade pass (#2). Returns the breakdown dict."""
+def _render_charges_panel(stats, trades, segment: str, init_cash: float, total_commission: float) -> dict:
+    """Real India statutory charges as a post-trade pass (#2). Returns the breakdown dict.
+
+    IMPORTANT (audit fix): ``trades['PnL']`` is already NET of the engine's flat commission
+    (``total_commission`` per leg). To avoid double-counting and a mislabeled "Gross", we add the
+    engine's flat cost BACK to recover the true commission-free gross, then subtract the real
+    India statutory charges to get the honest net.
+    """
     st.subheader("💸 Real India Charges — Gross vs Net")
     if trades is None or trades.empty:
         st.info("No trades to charge.")
         return {}
     ch = india.charges_for_trades(trades, segment)
-    gross_pnl = float(trades["PnL"].sum()) if "PnL" in trades.columns else 0.0
+    pnl_after_engine = float(trades["PnL"].sum()) if "PnL" in trades.columns else 0.0
+    # engine commission = total_commission × (entry_notional + exit_notional), summed over trades
+    notional = float((trades["Size"].abs() * trades["EntryPrice"]).sum()
+                     + (trades["Size"].abs() * trades["ExitPrice"]).sum())
+    engine_cost = total_commission * notional
+    gross_pnl = pnl_after_engine + engine_cost  # commission-free gross
     net_pnl = gross_pnl - ch["total"]
     gross_ret = gross_pnl / init_cash * 100
     net_ret = net_pnl / init_cash * 100
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Gross P&L", f"₹{gross_pnl:,.0f}")
-    c2.metric("Total Charges", f"₹{ch['total']:,.0f}", help="STT + stamp + exchange + SEBI + brokerage + 18% GST")
-    c3.metric("Net P&L (after charges)", f"₹{net_pnl:,.0f}", delta=f"{net_ret-gross_ret:.2f}% vs gross")
+    c1.metric("Gross P&L (no costs)", f"₹{gross_pnl:,.0f}")
+    c2.metric("Real India Charges", f"₹{ch['total']:,.0f}", help="STT + stamp + exchange + SEBI + brokerage + 18% GST")
+    c3.metric("Net P&L (after real charges)", f"₹{net_pnl:,.0f}", delta=f"{net_ret-gross_ret:.2f}% vs gross")
     c4.metric("Net Return", f"{net_ret:.2f}%")
     bd = pd.DataFrame(
         [{"Charge": k.replace("_", " ").title(), "₹": ch[k]}
          for k in ["stt", "stamp_duty", "exchange", "sebi", "brokerage", "gst", "total"]]
     ).set_index("Charge")
     st.dataframe(bd, use_container_width=True)
-    st.caption(f"Segment: **{segment}** · {ch['num_trades']} trades. Charges computed per leg in Decimal. "
-               "This is the honest ₹-accurate cost; the engine's flat commission is a separate equity-curve proxy.")
+    st.caption(f"Segment: **{segment}** · {ch['num_trades']} trades · Decimal per-leg charges. "
+               f"Gross is reconstructed by removing the engine's flat ₹{engine_cost:,.0f} cost, "
+               "so real statutory charges are the only cost layer (no double counting).")
     ch["gross_pnl"], ch["net_pnl"], ch["net_return_pct"] = gross_pnl, net_pnl, net_ret
     return ch
 
@@ -346,7 +358,7 @@ def _render_single(ctx, history):
                     st.warning(f"Could not generate Plotly chart: {plot_e}")
 
                 # #2 Real India charges — Gross vs Net
-                charges = _render_charges_panel(stats, trades, segment, init_cash)
+                charges = _render_charges_panel(stats, trades, segment, init_cash, params["total_commission"])
 
                 # #4 QuantStats tearsheet + risk analytics
                 _render_quantstats(stats)
@@ -385,7 +397,7 @@ def _render_single(ctx, history):
                     "sqn": sm["sqn"], "buy_hold_return_pct": sm["buy_hold_return_pct"],
                     "quality_score": qreport.get("quality_score"), "segment": segment,
                     "net_return_pct": charges.get("net_return_pct"), "total_charges": charges.get("total"),
-                    "dataset_hash": repro.hash_file(selected_file),
+                    "dataset_hash": repro.hash_dataframe(df),  # content-based (re-download safe)
                     "config_hash": repro.hash_config(config_dict),
                     "strategy_hash": repro.hash_text(code), "code_hash": repro.code_version(),
                     "equity_curve_json": equity_json,

@@ -21,6 +21,8 @@ def _optuna_optimize(bt, opt_kwargs, maximize, n_trials, progress_cb=None):
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
+    _SENTINEL = -999.0
+
     def objective(trial):
         trial_kwargs = {}
         for k, v in opt_kwargs.items():
@@ -28,10 +30,16 @@ def _optuna_optimize(bt, opt_kwargs, maximize, n_trials, progress_cb=None):
                 high = max(v.start, v.stop - v.step)
                 trial_kwargs[k] = trial.suggest_int(k, v.start, high, step=v.step)
             else:
-                trial_kwargs[k] = trial.suggest_float(k, min(v), max(v))
+                vals = list(v)
+                # An int-natured param given as a float list (e.g. periods) must use suggest_int,
+                # else Optuna feeds e.g. period=13.74 into indicators -> every trial silently fails.
+                if vals and all(float(x).is_integer() for x in vals):
+                    trial_kwargs[k] = trial.suggest_int(k, int(min(vals)), int(max(vals)))
+                else:
+                    trial_kwargs[k] = trial.suggest_float(k, min(vals), max(vals))
         res = bt.run(**trial_kwargs)
         val = res.get(maximize, 0)
-        return float(val) if not pd.isna(val) else -999.0
+        return float(val) if not pd.isna(val) else _SENTINEL
 
     study = optuna.create_study(direction="maximize")
     if progress_cb:
@@ -42,6 +50,12 @@ def _optuna_optimize(bt, opt_kwargs, maximize, n_trials, progress_cb=None):
     else:
         study.optimize(objective, n_trials=n_trials)
 
+    # Don't return a fake "best" when every trial failed (sentinel) — surface it.
+    if study.best_value is None or study.best_value <= _SENTINEL + 1.0:
+        raise RuntimeError(
+            "Optimizer found no valid parameter configuration (all trials failed). "
+            "Check the parameter ranges/types for the selected indicators."
+        )
     stats = bt.run(**study.best_params)
     return stats, dict(study.best_params)
 

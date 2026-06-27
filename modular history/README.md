@@ -17,6 +17,16 @@ run.bat       :: launches the dashboard (Streamlit) in your browser
 
 `run.bat` uses this folder's `.venv` if present, otherwise the parent app's `.venv`.
 
+## Saving downloaded data (CSV / Parquet)
+
+Every downloader (Master / Single / Bulk / Options) can save **Parquet**, **CSV**, or **Both**:
+
+- Set the default in **⚙️ Settings → Paths & Data Format → Download Save Format** (default **Both**),
+  with an optional **CSV Data Directory** for keeping CSVs in a separate folder.
+- Each download page also shows **two folder inputs** — a **Parquet Save Folder** and a **CSV Save
+  Folder** (blank = save CSVs alongside the Parquet) — so you can set both destinations per download.
+- A 💾 line on each page states exactly which formats are written and where.
+
 ## What changed (and what didn't)
 
 **Same 13 features**, identical behaviour: Master / Single / Bulk downloaders, Options Chain,
@@ -38,6 +48,15 @@ and the ML Pattern Finder.
 - Recovery scan now handles both `_to_` and plain filename formats.
 - Multi-output indicators (Supertrend, Stochastic, Keltner, Donchian) are now selectable
   everywhere (the monolith omitted them on the Plotter & ML pages).
+
+**v6 — honest results, audit fixes & multi-format saving (see ../CHANGELOG.md):**
+- Out-of-sample optimiser validation, real India statutory charges, data-quality gate, QuantStats
+  tearsheet, Results leaderboard, reproducibility hashes.
+- A multi-agent audit then fixed real bugs: ML Pattern Finder crash, short trailing-stop never
+  ratcheting (+ a latent crash), double-counted charges, Optuna integer params, presets dropping
+  position sizing, and the tab-switch / search lag (instrument selector re-scan).
+- Corporate-actions split download crash fixed (int64 Volume on pandas ≥ 3).
+- CSV + Parquet dual-format saving with separate folders.
 
 ## Architecture
 

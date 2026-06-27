@@ -79,7 +79,8 @@ def connect(timeout: float = 10.0) -> Iterator[sqlite3.Connection]:
     """Yield a sqlite connection (WAL, foreign keys on). Commits on clean exit."""
     conn = sqlite3.connect(DB_FILE, timeout=timeout)
     try:
-        conn.execute("PRAGMA journal_mode=WAL")
+        # WAL is a persistent file-level setting (set once in init_db); only per-connection
+        # PRAGMAs belong here. Re-running journal_mode=WAL on every connect() was wasted work.
         conn.execute("PRAGMA foreign_keys=ON")
         yield conn
         conn.commit()
@@ -93,6 +94,7 @@ def init_db() -> None:
     if _initialised:
         return
     with connect() as conn:
+        conn.execute("PRAGMA journal_mode=WAL")  # persistent; set once here, not per-connect
         for stmt in _SCHEMA:
             conn.execute(stmt)
         _migrate(conn)

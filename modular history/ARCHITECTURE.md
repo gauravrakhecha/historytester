@@ -29,13 +29,16 @@ quantdesk/
     settings_repo.py       cached settings accessor + backtest_params() bundle
     logging.py             rotating file + console logger
     cache.py               Streamlit-or-not cache shim (worker/test safe)
+    reproducibility.py     dataset/config/strategy/code content hashes
   data/
     loader.py              read csv/parquet (mtime-cached); load_ohlcv / load_indexed
-    resample.py            timeframe resampling
-    corporate_actions.py   split/bonus back-adjust + dividend/rights accrual
-    master_list.py         unified instrument master + asset classifiers (per broker)
-    quality.py             non-blocking data sanity report (enhancement)
+    resample.py            vectorised per-session timeframe resampling
+    corporate_actions.py   split/bonus back-adjust + dividend/rights accrual (dtype-safe)
+    master_list.py         unified instrument master + asset classifiers (cache_resource + disk cache)
+    quality.py             data sanity report (enforced as a gate)
     recovery.py            rebuild the download log by scanning a folder
+    saver.py               write downloads as Parquet / CSV / Both (+ separate CSV dir)
+  costs/india.py           Decimal India statutory charges (STT/stamp/GST/exchange/SEBI)
   brokers/
     base.py                adapter seam + RetryableError
     upstox.py / zerodha.py / dhan.py   one fetch_single() per broker (+ Upstox options)

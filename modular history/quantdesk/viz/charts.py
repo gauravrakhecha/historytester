@@ -60,11 +60,12 @@ def render_plotly_backtest(out_df: pd.DataFrame, trades) -> go.Figure:
             row=1, col=1,
         )
 
-    colors = np.where(out_df["Close"] >= out_df["Open"], "#26a69a", "#ef5350")
-    fig.add_trace(
-        go.Bar(x=out_df.index, y=out_df["Volume"], marker_color=colors, name="Volume"),
-        row=2, col=1,
-    )
+    if "Volume" in out_df.columns:
+        colors = np.where(out_df["Close"] >= out_df["Open"], "#26a69a", "#ef5350")
+        fig.add_trace(
+            go.Bar(x=out_df.index, y=out_df["Volume"], marker_color=colors, name="Volume"),
+            row=2, col=1,
+        )
 
     fig.update_layout(
         title="Strategy Backtest Visualization",

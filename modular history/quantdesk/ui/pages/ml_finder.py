@@ -82,8 +82,12 @@ def render(ctx):
                 if not result["importance"].empty:
                     st.plotly_chart(feature_importance_bar(result["importance"]), use_container_width=True)
 
-                st.subheader("📜 AI-Discovered High Probability Rules")
-                st.markdown("The AI built a decision tree to find indicator ranges that increase your win rate. **Consider adding these to your Strategy Builder Range Zones!**")
+                st.subheader("📜 AI-Discovered Candidate Patterns (in-sample / exploratory)")
+                st.warning(
+                    "⚠️ **Exploratory only.** These rules are mined from the SAME trades they're scored on "
+                    "(no out-of-sample holdout or significance test yet), so they over-state edge. "
+                    "Treat them as hypotheses — re-validate on unseen data before trusting or trading them."
+                )
                 with st.expander("View Raw Decision Tree Logic", expanded=False):
                     st.code(result["tree_text"], language="text")
 

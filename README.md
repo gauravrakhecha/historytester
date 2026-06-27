@@ -5,14 +5,14 @@ brokers (Upstox, Zerodha, Dhan) and build + backtest + optimise + ML-mine algori
 strategies — **without writing a line of code**.
 
 > **Two editions in this repo:**
-> - **Modular Edition** (recommended, **latest = v5**): a fast, modular, tested package under
->   [`modular history/`](modular%20history/). v4 refactored the monolith 1:1; **v5** adds honest
->   out-of-sample validation, real India charges, a data-quality gate, and QuantStats reporting.
->   Start here for new work.
+> - **Modular Edition** (recommended, **latest = v6**): a fast, modular, tested package under
+>   [`modular history/`](modular%20history/). v4 refactored the monolith 1:1; **v5** added honest
+>   out-of-sample validation, real India charges, a data-quality gate and QuantStats; **v6** is an
+>   audit-hardening + speed + CSV/Parquet-saving release. Start here for new work.
 > - **v3 — Single-file** (`upstox_app.py`): the original 3,207-line app, retained as reference.
 >
-> The v4 refactor was feature-for-feature identical to v3 (numeric parity harness); **v5** then
-> makes every reported number trustworthy. See the [Changelog](CHANGELOG.md) and
+> The v4 refactor was feature-for-feature identical to v3 (numeric parity harness); v5/v6 then make
+> every reported number trustworthy and the app fast. See the [Changelog](CHANGELOG.md) and
 > [`modular history/ROADMAP_v5.md`](modular%20history/ROADMAP_v5.md).
 
 ---
@@ -54,6 +54,18 @@ Both open a Streamlit dashboard at `http://localhost:8501`.
 - Backtest results database + ML Pattern Finder (XGBoost importance + decision-tree rules).
 
 ---
+
+## 🆕 What's new in v6 — *Audit Hardening, Speed & Multi-Format Saving*
+
+- **Faster UI** — tab switches and search no longer rescan the 141k-row instrument list every
+  keystroke; the master list is a shared singleton + 24h disk cache (startup ~10s → ~0.8s).
+- **Audit fixes** — a multi-agent audit caught and fixed real bugs: ML Pattern Finder crash,
+  short trailing-stop never ratcheting (+ a latent crash), double-counted charges, Optuna integer
+  params, and presets dropping position sizing.
+- **Corporate-actions download crash** fixed (int64 Volume on pandas ≥ 3).
+- **CSV + Parquet saving** — choose Parquet / CSV / **Both** in Settings, with an optional
+  separate CSV folder; each download page now has both a Parquet and a CSV folder input.
+- **37 passing tests** (parity still byte-exact).
 
 ## 🆕 What's new in v5 — *Honest Numbers*
 

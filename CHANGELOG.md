@@ -1,5 +1,44 @@
 # Changelog
 
+## v6.0 — Audit Hardening, Speed & Multi-Format Saving (2026-06-27)
+
+Built on v5. A user-reported slowness prompted a **multi-agent audit** that found (and this
+release fixes) several real bugs, plus performance work and CSV/Parquet saving. **37 passing
+tests** (parity still byte-exact).
+
+### Performance — tab switching / search lag
+- Instrument **master list** is now a shared `cache_resource` singleton + cached in session_state
+  (no 53 MB deep-copy or "Loading…" flash per rerun), the asset-class classifier is **vectorised**
+  (3.0s → 0.3s), and the list is cached **on disk for 24h** (startup ~10s → ~0.8s).
+- The instrument **selector** no longer re-scans all ~141k rows on every keystroke (per-class
+  slices precomputed once) — search keystroke ~90ms → ~33ms.
+- `PRAGMA journal_mode=WAL` set once (not per DB connection); resample vectorised (~40× faster).
+
+### Bug fixes (from the audit)
+- **ML Pattern Finder** crashed on every run (read `Return [%]` instead of the per-trade
+  `ReturnPct`) — fixed; outputs now labelled in-sample/exploratory.
+- **Short trailing stops never ratcheted** (signed position size) and the **"Tighten Trailing
+  Stop" zone did nothing** — both fixed; also fixed a latent crash (`position.entry_price`).
+- **Charges panel double-counted** the engine commission and mislabeled gross — now reconstructs
+  true commission-free gross so statutory charges are the only cost layer.
+- **Optuna** fed floats into integer params (silent failed trials, fake "best") — now uses
+  `suggest_int` for integer ranges and errors if no valid configuration is found.
+- **Presets** silently dropped position sizing (size type / per-trade ₹ / lot) — now round-tripped.
+- Year-wise **drawdown** reported ~0% (min vs max), volume-less charts, and a mtime-based dataset
+  hash — all fixed; data-quality gate now enforced inside the engine.
+
+### Corporate-actions download crash
+- Downloading an equity with a split/bonus crashed on pandas ≥ 3 (`int64` Volume × float
+  multiplier). Fixed by widening OHLCV to float before adjustment. Added the previously-missing
+  corporate-actions test suite.
+
+### CSV + Parquet saving
+- New **Download Save Format** setting (Parquet / CSV / **Both**, default Both) and an optional
+  **separate CSV folder**. Every download page now exposes **both** a Parquet and a CSV folder
+  input, and states exactly what is saved where.
+
+---
+
 ## v5.0 — Honest Numbers (2026-06-26)
 
 Built on the v4 modular package (`modular history/`). This release makes every reported number

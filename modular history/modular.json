@@ -6,7 +6,7 @@
   "target_root": "D:/mbs/historydownloader/modular history",
   "verification_data": "D:/simpleton/historydownloader/data",
   "engine_decision": "keep backtesting.py",
-  "updated_at": "2026-06-26 17:51:41",
+  "updated_at": "2026-06-27 09:48:13",
   "status_legend": [
     "pending",
     "in_progress",
@@ -184,8 +184,8 @@
         "tests/test_corporate_actions.py"
       ],
       "verified": true,
-      "notes": "ported + smoke-tested",
-      "updated_at": "2026-06-25 15:56:46"
+      "notes": "dtype-safe split adj; tested",
+      "updated_at": "2026-06-27 09:02:34"
     },
     "quantdesk/data/master_list.py": {
       "status": "verified",
@@ -193,8 +193,8 @@
       "source_lines": "286-393",
       "purpose": "unified master list per broker + asset classifiers",
       "verified": true,
-      "notes": "ported + smoke-tested",
-      "updated_at": "2026-06-25 15:56:46"
+      "notes": "PERF: cache_resource (no copy) + vectorized classifier (10x) + 24h disk cache",
+      "updated_at": "2026-06-26 21:38:03"
     },
     "quantdesk/data/quality.py": {
       "status": "verified",
@@ -279,8 +279,8 @@
         "tests/test_codegen.py"
       ],
       "verified": true,
-      "notes": "#7 intrabar trailing + fixed position.entry_price crash",
-      "updated_at": "2026-06-26 17:51:40"
+      "notes": "audit fix: short ratchet + tighten zone",
+      "updated_at": "2026-06-27 04:29:47"
     },
     "quantdesk/strategy/compiler.py": {
       "status": "verified",
@@ -330,8 +330,8 @@
         "tests/test_optimizer.py"
       ],
       "verified": true,
-      "notes": "optuna + grid; safe int range bound",
-      "updated_at": "2026-06-25 16:09:34"
+      "notes": "audit fix: optuna int params + sentinel",
+      "updated_at": "2026-06-27 04:29:48"
     },
     "quantdesk/backtest/batch.py": {
       "status": "verified",
@@ -363,8 +363,8 @@
         "tests/test_ml_patterns.py"
       ],
       "verified": true,
-      "notes": "pure XGBoost+DTree mining (UI-decoupled)",
-      "updated_at": "2026-06-25 16:09:35"
+      "notes": "audit fix: ReturnPct",
+      "updated_at": "2026-06-27 04:29:47"
     },
     "quantdesk/viz/charts.py": {
       "status": "verified",
@@ -381,8 +381,8 @@
       "source_lines": "395-425, 778-813",
       "purpose": "render_instrument_selector, auth sidebar, shared widgets/tooltips, page context",
       "verified": true,
-      "notes": "auth sidebar + instrument selector + nav + ctx",
-      "updated_at": "2026-06-25 16:37:05"
+      "notes": "render_save_folders (dual folder inputs)",
+      "updated_at": "2026-06-27 09:48:13"
     },
     "quantdesk/ui/pages/master_downloader.py": {
       "status": "verified",
@@ -507,8 +507,8 @@
       "source_lines": "66-67, 231-283, 778-813",
       "purpose": "thin entry: page config, auth sidebar, nav, dispatch",
       "verified": true,
-      "notes": "thin entry; per-page auth gate; AppTest-driven",
-      "updated_at": "2026-06-25 16:37:05"
+      "notes": "PERF: session_state master_df cache (load once, no spinner/copy per tab switch)",
+      "updated_at": "2026-06-26 21:38:03"
     },
     "tests/conftest.py": {
       "status": "verified",
@@ -599,6 +599,30 @@
       "verified": true,
       "notes": "8 v5 unit tests pass",
       "updated_at": "2026-06-26 17:51:41"
+    },
+    "tests/test_audit_fixes.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "8 regression tests for audit fixes",
+      "updated_at": "2026-06-27 04:29:48"
+    },
+    "tests/test_corporate_actions.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "4 corp-action tests",
+      "updated_at": "2026-06-27 09:02:34"
+    },
+    "quantdesk/data/saver.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "per-call csv_dir override",
+      "updated_at": "2026-06-27 09:48:13"
+    },
+    "tests/test_saver.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "5 saver tests",
+      "updated_at": "2026-06-27 09:26:58"
     }
   },
   "feature_parity_checklist": {
@@ -1316,6 +1340,141 @@
       "ts": "2026-06-26 17:51:41",
       "agent": "orchestrator",
       "event": "v5 NOW bucket COMPLETE & verified: #1 IS/OOS, #2 India charges, #3 quality gate, #4 QuantStats, #5 buried metrics, #6 leaderboard, #7 trailing intrabar (+crash fix), #8 dividends-in-resample, #9 repro hashes, #10 session anchor. pytest 18/18; AppTest all pages + flows green; real-browser boot clean."
+    },
+    {
+      "ts": "2026-06-26 21:38:03",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/data/master_list.py -> verified (PERF: cache_resource (no copy) + vectorized classifier (10x) + 24h disk cache)"
+    },
+    {
+      "ts": "2026-06-26 21:38:03",
+      "agent": "orchestrator",
+      "event": "file:app_main.py -> verified (PERF: session_state master_df cache (load once, no spinner/copy per tab switch))"
+    },
+    {
+      "ts": "2026-06-26 21:38:03",
+      "agent": "perf",
+      "event": "TAB-SWITCH SLOWNESS RESOLVED: master list was deep-copied (53MB) + spinner-flashed on every rerun. Fix: cache_resource + session_state (load once); vectorized classifier 3.0s->0.31s; 24h on-disk parquet cache (startup 7-13s->0.8s). AppTest tab switch ~90ms; all 13 pages + 18 pytest + deep flows green."
+    },
+    {
+      "ts": "2026-06-27 04:29:45",
+      "agent": "audit",
+      "event": "Multi-agent audit (8 agents) found real bugs my tests missed. FIXED:"
+    },
+    {
+      "ts": "2026-06-27 04:29:45",
+      "agent": "audit",
+      "event": "[critical] ML Finder crashed KeyError('Return [%]') -> use per-trade 'ReturnPct' (patterns.py)"
+    },
+    {
+      "ts": "2026-06-27 04:29:45",
+      "agent": "audit",
+      "event": "[critical] short trailing stop never ratcheted (signed _prev_position_size) -> guard >=0 (codegen)"
+    },
+    {
+      "ts": "2026-06-27 04:29:46",
+      "agent": "audit",
+      "event": "[high] 'Tighten Trailing Stop' zone dead code -> self._zone_tight_sl consistent (codegen)"
+    },
+    {
+      "ts": "2026-06-27 04:29:46",
+      "agent": "audit",
+      "event": "[high] charges panel double-counted engine commission + mislabeled gross -> add-back true gross (backtester)"
+    },
+    {
+      "ts": "2026-06-27 04:29:46",
+      "agent": "audit",
+      "event": "[high] slowness REAL cause: render_instrument_selector rescanned 141k rows/keystroke -> precomputed per-class meta (components/app_main); keystroke 90ms->33ms"
+    },
+    {
+      "ts": "2026-06-27 04:29:46",
+      "agent": "audit",
+      "event": "[high] Optuna fed floats into int params (masked -999) -> suggest_int for integer lists + raise on all-fail (optimizer)"
+    },
+    {
+      "ts": "2026-06-27 04:29:47",
+      "agent": "audit",
+      "event": "[high] presets dropped pos_size_type/fixed_pos_value/lot_size -> round-tripped (models/strategy_builder)"
+    },
+    {
+      "ts": "2026-06-27 04:29:47",
+      "agent": "audit",
+      "event": "[med] yearly drawdown used min() reported ~0% -> max() (metrics); WAL once not per-connect (db); resample vectorized 40x (resample); engine quality gate; ML labeled exploratory; volume guard; content dataset_hash"
+    },
+    {
+      "ts": "2026-06-27 04:29:47",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ml/patterns.py -> verified (audit fix: ReturnPct)"
+    },
+    {
+      "ts": "2026-06-27 04:29:47",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/codegen.py -> verified (audit fix: short ratchet + tighten zone)"
+    },
+    {
+      "ts": "2026-06-27 04:29:48",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/components.py -> verified (audit fix: precomputed selector meta)"
+    },
+    {
+      "ts": "2026-06-27 04:29:48",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/backtest/optimizer.py -> verified (audit fix: optuna int params + sentinel)"
+    },
+    {
+      "ts": "2026-06-27 04:29:48",
+      "agent": "orchestrator",
+      "event": "file:tests/test_audit_fixes.py -> verified (8 regression tests for audit fixes)"
+    },
+    {
+      "ts": "2026-06-27 09:02:34",
+      "agent": "bugfix",
+      "event": "Bulk/Master/Single download crash on split/bonus: pandas 3.x rejects float split-multiplier into int64 Volume column. Fix: cast OHLCV to float64 before split adjustment (corporate_actions.py). Added test_corporate_actions.py (4 tests, was zero-coverage per audit)."
+    },
+    {
+      "ts": "2026-06-27 09:02:34",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/data/corporate_actions.py -> verified (dtype-safe split adj; tested)"
+    },
+    {
+      "ts": "2026-06-27 09:02:34",
+      "agent": "orchestrator",
+      "event": "file:tests/test_corporate_actions.py -> verified (4 corp-action tests)"
+    },
+    {
+      "ts": "2026-06-27 09:26:57",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/data/saver.py -> verified (multi-format save (Parquet/CSV/Both + separate CSV dir))"
+    },
+    {
+      "ts": "2026-06-27 09:26:58",
+      "agent": "orchestrator",
+      "event": "file:tests/test_saver.py -> verified (5 saver tests)"
+    },
+    {
+      "ts": "2026-06-27 09:26:58",
+      "agent": "feature",
+      "event": "Dual-format download save: Settings now has 'Download Save Format' (Parquet/CSV/Both, default Both) + optional separate 'CSV Data Directory' (mirrors structure). All 4 downloaders route through data/saver.save_frame. 9 new tests green; UI verified."
+    },
+    {
+      "ts": "2026-06-27 09:42:32",
+      "agent": "clarify",
+      "event": "User reported parquet not saving — actually BOTH formats saved correctly (parquet in parquet_data_dir, CSV in separate csv_data_dir). Verified TCS files on disk. Added format_summary() captions + clearer success messages on all 4 downloaders so destinations are unambiguous."
+    },
+    {
+      "ts": "2026-06-27 09:48:13",
+      "agent": "feature",
+      "event": "Download pages now expose BOTH a Parquet folder AND a CSV folder input (CSV shown when format includes CSV) via components.render_save_folders; save_frame takes a per-call csv_dir override (''=alongside). Master/Single/Bulk/Options wired. 7 saver tests green; UI verified."
+    },
+    {
+      "ts": "2026-06-27 09:48:13",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/data/saver.py -> verified (per-call csv_dir override)"
+    },
+    {
+      "ts": "2026-06-27 09:48:13",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/components.py -> verified (render_save_folders (dual folder inputs))"
     }
   ]
 }

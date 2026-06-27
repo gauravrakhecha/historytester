@@ -11,6 +11,7 @@ from quantdesk.brokers.downloader import run_async_download
 from quantdesk.config import BANK_NIFTY_LIST, NIFTY_50_LIST
 from quantdesk.core.db import delete_template, get_templates, log_download, save_template
 from quantdesk.data.resample import resample_dataframe
+from quantdesk.data.saver import format_summary, primary_path, save_frame
 from quantdesk.ui import components as C
 
 
@@ -75,7 +76,7 @@ def render(ctx):
         today = datetime.date.today()
         from_date = st.date_input("From Date", today - datetime.timedelta(days=30))
         to_date = st.date_input("To Date", today)
-        local_path = st.text_input("📁 Folder Path", value=ctx.default_parquet_dir)
+        local_path, csv_dir = C.render_save_folders("bulk", ctx.default_parquet_dir, "📁 Parquet Folder Path")
 
         if st.button("🚀 Start Bulk Async Download", use_container_width=True):
             if not selected_intervals:
@@ -109,8 +110,8 @@ def render(ctx):
                                 save_dir = os.path.join(local_path, safe_sym, sv_lbl)
                                 os.makedirs(save_dir, exist_ok=True)
                                 full_path = os.path.join(save_dir, f"{safe_sym}_{sv_lbl}_{from_date}_{to_date}.parquet")
-                                df.to_parquet(full_path, engine="pyarrow")
-                                log_download(ctx.broker, sym, row["instrument_key"], sv_lbl, from_date, to_date, full_path)
+                                written = save_frame(df, full_path, local_path, csv_dir)
+                                log_download(ctx.broker, sym, row["instrument_key"], sv_lbl, from_date, to_date, primary_path(written, full_path))
                                 success_count += 1
                             else:
                                 fail_count += 1
@@ -120,3 +121,4 @@ def render(ctx):
                     pbar.progress(pct, text=f"Batch Progress: {int(pct * 100)}% - Processed {i+1} of {len(raw_symbols)}")
 
                 status_area.success(f"✅ Batch Complete! Success: {success_count}, Failed: {fail_count}")
+                st.caption(format_summary(csv_dir))

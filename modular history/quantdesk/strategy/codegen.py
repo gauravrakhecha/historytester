@@ -143,7 +143,8 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
         code += "        # Advanced Range Management: classify indicator zones\n"
         code += "        _zone_block_entry = False\n"
         code += "        _zone_close_position = False\n"
-        code += "        _zone_tight_sl = 0.0\n"
+        # self._zone_tight_sl so the trailing block (which reads self._zone_tight_sl) sees it.
+        code += "        self._zone_tight_sl = 0.0\n"
         for zi, z in enumerate(range_zones):
             ind_ref = src_map.get(z["indicator"], f"self.{z['indicator']}")
             code += f"        # Zone: {z.get('label', f'Zone_{zi}')}\n"
@@ -154,7 +155,7 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
                 code += "            _zone_block_entry = True\n"
                 code += "            _zone_close_position = True\n"
             elif z["action"] == "Tighten Trailing Stop":
-                code += f"            _zone_tight_sl = self.zone_{zi}_tight_pct\n"
+                code += f"            self._zone_tight_sl = self.zone_{zi}_tight_pct\n"
             else:
                 code += "            pass  # Normal Trading\n"
         code += "\n"
@@ -249,7 +250,10 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
 
         if strat_dir in ["Long & Short", "Short Only"]:
             code += "        if self.position.is_short:\n"
-            code += "            if getattr(self, '_prev_position_size', 0) <= 0:\n"
+            # _prev_position_size is SIGNED (negative while short). A fresh short means we were
+            # flat/long last bar => prev >= 0; while continuing short prev < 0 and we ratchet the
+            # low DOWN. (Using <= 0 here was the bug: it stayed true every bar, pinning the trail.)
+            code += "            if getattr(self, '_prev_position_size', 0) >= 0:\n"
             code += "                self._lowest_since_entry = self.trades[-1].entry_price if self.trades else self.data.Close[-1]\n"
             code += "            else:\n"
             code += "                self._lowest_since_entry = min(getattr(self, '_lowest_since_entry', self.data.Close[-1]), self.data.Low[-1])\n"

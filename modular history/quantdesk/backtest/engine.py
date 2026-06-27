@@ -14,7 +14,20 @@ import pandas as pd
 from backtesting import Backtest
 
 from quantdesk.backtest import optimizer as _opt
+from quantdesk.config import QUALITY_BLOCK_THRESHOLD
+from quantdesk.data.quality import validate as _validate_quality
 from quantdesk.strategy.compiler import compile_strategy
+
+
+def _enforce_quality(df: pd.DataFrame) -> None:
+    """Standing-rule gate inside the engine so EVERY caller is protected (not just UI/worker)."""
+    frame = df.reset_index() if df.index.name == "Timestamp" else df
+    q = _validate_quality(frame)
+    if q["quality_score"] < QUALITY_BLOCK_THRESHOLD:
+        raise ValueError(
+            f"Data quality {q['quality_score']}/100 is below the block threshold "
+            f"({QUALITY_BLOCK_THRESHOLD}); refusing to backtest. Issues: {', '.join(q['issues']) or 'n/a'}"
+        )
 
 
 def make_backtest(df: pd.DataFrame, code: str, init_cash: float, total_commission: float, margin: float) -> Backtest:
@@ -48,6 +61,7 @@ def run_single(
     ``{best_params, is_stats, oos_stats, split_index, oos_fraction}`` for the comparison panel.
     If the OOS tail is too small, it falls back to a full-period optimise (``info['no_oos']``).
     """
+    _enforce_quality(df)
     if optimize_mode and opt_kwargs:
         split = int(len(df) * (1.0 - oos_fraction))
         is_df, oos_df = df.iloc[:split], df.iloc[split:]

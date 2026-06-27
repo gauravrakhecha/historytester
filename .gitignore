@@ -16,6 +16,7 @@ modular history/quantdesk_data.db
 modular history/plots/
 modular history/strategies/
 modular history/indicator_presets/
+modular history/.master_cache/
 modular history/.workflow/*.log
 modular history/.workflow/*.tmp
 modular history/.workflow/*.jsonl

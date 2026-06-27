@@ -39,6 +39,10 @@ def _restore_from_preset(data: dict):
     st.session_state["tp_pct"] = rm.get("tp_pct", 5.0)
     st.session_state["trail_pct"] = rm.get("trail_pct", 2.0)
     st.session_state["strat_dir"] = rm.get("strat_dir", "Long Only")
+    # position sizing (preserved across save/load — was previously lost)
+    st.session_state["pos_size_type"] = data.get("pos_size_type", "Fixed Value per Trade (₹) (Default)")
+    st.session_state["fixed_pos_value"] = data.get("fixed_pos_value", 50000.0)
+    st.session_state["lot_size"] = data.get("lot_size", 1)
 
 
 def _current_export() -> dict:
@@ -55,6 +59,9 @@ def _current_export() -> dict:
             "trail_pct": st.session_state.get("trail_pct", 2.0),
             "strat_dir": st.session_state.get("strat_dir", "Long Only"),
         },
+        "pos_size_type": st.session_state.get("pos_size_type", "Fixed Value per Trade (₹) (Default)"),
+        "fixed_pos_value": st.session_state.get("fixed_pos_value", 50000.0),
+        "lot_size": st.session_state.get("lot_size", 1),
     }
 
 
