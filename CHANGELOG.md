@@ -1,5 +1,25 @@
 # Changelog
 
+## v6.1 — Chart Redesign (2026-06-27)
+
+The Plotly backtest chart was "messy" because a type-blind loop dumped **every** indicator —
+including oscillators (RSI/ADX/Stochastic/MACD on 0–100 / ~0 scales) — onto the single price
+axis. A multi-agent debate concluded: **keep Plotly, fix the design** (Streamlit's `st.bokeh_chart`
+is a no-op here, and a pivot would carry the same flaw at far higher cost). Fixes:
+
+- **Overlay vs panel routing** — price-scale indicators (SMA/EMA/WMA/ALMA/VWAP/Bollinger/
+  Supertrend/Keltner/Donchian/PSAR) stay overlaid on the candles; own-scale oscillators each get
+  their **own stacked sub-panel** with guide lines (RSI 30/70, Stoch 20/80, ADX 25, MACD zero).
+  Driven by a single `config.INDICATOR_PLACEMENT` + `models.classify_columns`.
+- **Readable & fast** — range-scaled signal markers (not fixed-%), WebGL (`Scattergl`) traces,
+  candle downsampling beyond 8,000 bars, intraday range-breaks (collapse overnight/weekend gaps),
+  `hovermode='x'` + horizontal legend.
+- **Optional "Pro chart"** — a checkbox embeds backtesting.py's **native Bokeh** plot (price +
+  indicators + equity + drawdown + trades, auto-downsampled) via the proven `file_html` embed —
+  the one genuine Bokeh win, captured without pivoting the owned Plotly charts.
+
+41 passing tests (3 new chart-layout tests + the native-Bokeh render); verified live in-browser.
+
 ## v6.0 — Audit Hardening, Speed & Multi-Format Saving (2026-06-27)
 
 Built on v5. A user-reported slowness prompted a **multi-agent audit** that found (and this

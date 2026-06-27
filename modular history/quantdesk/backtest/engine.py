@@ -8,6 +8,7 @@ to :mod:`quantdesk.backtest.optimizer`.
 """
 from __future__ import annotations
 
+import os
 from typing import Callable, Optional
 
 import pandas as pd
@@ -80,3 +81,28 @@ def run_single(
         }
         return oos_stats, info
     return make_backtest(df, code, init_cash, total_commission, margin).run(), None
+
+
+def native_bokeh_html(df: pd.DataFrame, code: str, init_cash: float, total_commission: float, margin: float) -> str:
+    """Render backtesting.py's NATIVE Bokeh chart (price+indicators+equity+drawdown+trades) to a
+    standalone HTML string for embedding via st.components.html (the "Pro chart" option).
+
+    This is the one genuine Bokeh win the debate identified — reuse the engine's polished, linked,
+    auto-downsampled plot — captured without pivoting the owned Plotly charts. Runs one extra
+    backtest on demand (opt-in). Raises on failure so the UI can show a clear message.
+    """
+    import tempfile
+
+    bt = make_backtest(df, code, init_cash, total_commission, margin)
+    stats = bt.run()
+    tmp = tempfile.NamedTemporaryFile(suffix=".html", delete=False)
+    tmp.close()
+    try:
+        bt.plot(results=stats, filename=tmp.name, open_browser=False, resample=True)
+        with open(tmp.name, "r", encoding="utf-8") as fh:
+            return fh.read()
+    finally:
+        try:
+            os.remove(tmp.name)
+        except Exception:
+            pass

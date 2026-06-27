@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from quantdesk.config import INDICATOR_OUTPUT_SUFFIXES
+from quantdesk.config import INDICATOR_OUTPUT_SUFFIXES, INDICATOR_PLACEMENT
 
 OHLCV = ["Close", "Open", "High", "Low", "Volume"]
 OPERATORS = [">", "<", "==", ">=", "<=", "Crosses Above", "Crosses Below"]
@@ -65,6 +65,23 @@ def selectable_columns(indicators: List[Dict[str, Any]]) -> List[str]:
     for ind in indicators or []:
         cols.extend(output_columns_for(ind))
     return cols
+
+
+def classify_columns(indicators: List[Dict[str, Any]]) -> Dict[str, dict]:
+    """Map each indicator output column → how the chart should place it.
+
+    Returns ``{col: {"placement": "overlay"|"panel", "group": <indicator name>, "type": <type>}}``.
+    Overlay columns share the price axis; panel columns are grouped per indicator instance so a
+    multi-output indicator (MACD line+signal, Stochastic %K/%D) shares one sub-panel. Drives the
+    redesigned chart layout (single source of truth, from ``config.INDICATOR_PLACEMENT``).
+    """
+    out: Dict[str, dict] = {}
+    for ind in indicators or []:
+        itype = ind.get("type", "")
+        placement = INDICATOR_PLACEMENT.get(itype, "overlay")
+        for col in output_columns_for(ind):
+            out[col] = {"placement": placement, "group": ind["name"], "type": itype}
+    return out
 
 
 @dataclass

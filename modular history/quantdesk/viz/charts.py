@@ -13,67 +13,139 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
-def render_plotly_backtest(out_df: pd.DataFrame, trades) -> go.Figure:
-    """Interactive candlestick + indicators + signals + volume figure."""
-    fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.8, 0.2]
-    )
+# Columns that are never plotted as indicator lines (price/signal/non-indicator series).
+_SKIP_COLS = {
+    "Open", "High", "Low", "Close", "Volume", "Buy_Signal", "Sell_Signal",
+    "OI", "Dividend", "Rights_Premium",
+}
+_CANDLE_MAX = 8000  # downsample candles (SVG) beyond this many bars for responsiveness
 
+
+def render_plotly_backtest(out_df: pd.DataFrame, trades, indicators=None) -> go.Figure:
+    """Interactive multi-panel backtest chart.
+
+    Redesign (chart-messiness fix): price-scale indicators (SMA/EMA/Bollinger/Supertrend/…) are
+    overlaid on the candlestick; own-scale indicators (RSI/ADX/Stochastic/MACD/ATR/…) get their
+    OWN stacked sub-panels with guide lines, instead of being crushed onto the price axis. Signal
+    markers use a range-scaled offset, indicator/marker traces use WebGL (Scattergl), candles are
+    downsampled on very long series, and intraday gaps (overnight/weekend) are collapsed.
+
+    ``indicators`` is the strategy's indicator config list; when omitted, every extra column is
+    treated as a price overlay (legacy behaviour).
+    """
+    from quantdesk.config import INDICATOR_PANEL_GUIDES
+    from quantdesk.strategy.models import classify_columns
+
+    cls = classify_columns(indicators) if indicators else {}
+
+    overlay_cols, panels = [], {}  # panels: group_name -> {"type": str, "cols": [str]}
+    for col in out_df.columns:
+        if col in _SKIP_COLS:
+            continue
+        info = cls.get(col)
+        if info and info["placement"] == "panel":
+            grp = panels.setdefault(info["group"], {"type": info["type"], "cols": []})
+            grp["cols"].append(col)
+        else:
+            overlay_cols.append(col)  # overlay or unclassified -> price axis
+
+    panel_names = list(panels.keys())
+    n_panels = len(panel_names)
+    has_vol = "Volume" in out_df.columns
+
+    rows = 1 + n_panels + (1 if has_vol else 0)
+    weights = [3.2] + [1.25] * n_panels + ([0.9] if has_vol else [])
+    total = sum(weights)
+    fig = make_subplots(
+        rows=rows, cols=1, shared_xaxes=True,
+        vertical_spacing=min(0.03, 0.6 / max(rows, 1)),
+        row_heights=[w / total for w in weights],
+    )
+    price_row = 1
+    panel_row = {name: 2 + i for i, name in enumerate(panel_names)}
+    vol_row = rows if has_vol else None
+
+    # Downsample only the (SVG) candles for very long series; markers/indicators stay full-res
+    # on the same time axis so they still align.
+    n = len(out_df)
+    cdf = out_df.iloc[:: max(1, n // _CANDLE_MAX)] if n > _CANDLE_MAX else out_df
     fig.add_trace(
         go.Candlestick(
-            x=out_df.index,
-            open=out_df["Open"], high=out_df["High"],
-            low=out_df["Low"], close=out_df["Close"],
-            name="Price",
+            x=cdf.index, open=cdf["Open"], high=cdf["High"], low=cdf["Low"], close=cdf["Close"],
+            name="Price", increasing_line_color="#26a69a", decreasing_line_color="#ef5350",
         ),
-        row=1, col=1,
+        row=price_row, col=1,
     )
 
-    for col in out_df.columns:
-        if col not in ["Open", "High", "Low", "Close", "Volume", "Buy_Signal", "Sell_Signal"]:
+    for col in overlay_cols:
+        fig.add_trace(
+            go.Scattergl(x=out_df.index, y=out_df[col], mode="lines", name=col, line=dict(width=1)),
+            row=price_row, col=1,
+        )
+
+    if "Buy_Signal" in out_df.columns:
+        rng = float((out_df["High"] - out_df["Low"]).median() or 0.0)
+        off = rng * 0.8
+        buys = out_df[out_df["Buy_Signal"] == 1]
+        sells = out_df[out_df["Sell_Signal"] == 1]
+        if not buys.empty:
             fig.add_trace(
-                go.Scatter(x=out_df.index, y=out_df[col], mode="lines", name=col), row=1, col=1
+                go.Scattergl(
+                    x=buys.index, y=buys["Low"] - off, mode="markers",
+                    marker=dict(symbol="triangle-up", size=10, color="#00e676", line=dict(width=1, color="black")),
+                    name="Buy",
+                ), row=price_row, col=1,
+            )
+        if not sells.empty:
+            fig.add_trace(
+                go.Scattergl(
+                    x=sells.index, y=sells["High"] + off, mode="markers",
+                    marker=dict(symbol="triangle-down", size=10, color="#ff5252", line=dict(width=1, color="black")),
+                    name="Sell",
+                ), row=price_row, col=1,
             )
 
-    buys = out_df[out_df["Buy_Signal"] == 1] if "Buy_Signal" in out_df.columns else pd.DataFrame()
-    sells = out_df[out_df["Sell_Signal"] == 1] if "Sell_Signal" in out_df.columns else pd.DataFrame()
+    for name in panel_names:
+        grp = panels[name]
+        r = panel_row[name]
+        for col in grp["cols"]:
+            fig.add_trace(
+                go.Scattergl(x=out_df.index, y=out_df[col], mode="lines", name=col, line=dict(width=1)),
+                row=r, col=1,
+            )
+        for gy in INDICATOR_PANEL_GUIDES.get(grp["type"], []):
+            fig.add_hline(y=gy, row=r, col=1, line_dash="dot", line_color="gray", opacity=0.4)
+        fig.update_yaxes(title_text=name, row=r, col=1, title_font=dict(size=10))
 
-    if not buys.empty:
-        fig.add_trace(
-            go.Scatter(
-                x=buys.index, y=buys["Low"] * 0.99,
-                mode="markers",
-                marker=dict(symbol="triangle-up", size=12, color="#00ff00", line=dict(width=1, color="black")),
-                name="Buy Signal",
-            ),
-            row=1, col=1,
-        )
-
-    if not sells.empty:
-        fig.add_trace(
-            go.Scatter(
-                x=sells.index, y=sells["High"] * 1.01,
-                mode="markers",
-                marker=dict(symbol="triangle-down", size=12, color="#ff0000", line=dict(width=1, color="black")),
-                name="Sell Signal",
-            ),
-            row=1, col=1,
-        )
-
-    if "Volume" in out_df.columns:
+    if has_vol:
         colors = np.where(out_df["Close"] >= out_df["Open"], "#26a69a", "#ef5350")
         fig.add_trace(
-            go.Bar(x=out_df.index, y=out_df["Volume"], marker_color=colors, name="Volume"),
-            row=2, col=1,
+            go.Bar(x=out_df.index, y=out_df["Volume"], marker_color=colors, name="Volume", showlegend=False),
+            row=vol_row, col=1,
         )
+        fig.update_yaxes(title_text="Vol", row=vol_row, col=1, title_font=dict(size=10))
 
+    # Collapse non-trading gaps for intraday data (keeps candles dense, not strung across nights).
+    try:
+        deltas = pd.Series(out_df.index).diff().dropna()
+        median_min = (deltas.dt.total_seconds().median() / 60) if len(deltas) else 1440
+        if median_min < 1440:
+            fig.update_xaxes(rangebreaks=[
+                dict(bounds=["sat", "mon"]),
+                dict(bounds=[15.5, 9.25], pattern="hour"),
+            ])
+    except Exception:
+        pass
+
+    fig.update_xaxes(rangeslider_visible=False)
+    fig.update_yaxes(title_text="Price", row=price_row, col=1)
     fig.update_layout(
         title="Strategy Backtest Visualization",
-        xaxis_rangeslider_visible=False,
-        height=750,
+        height=520 + 170 * (n_panels + (1 if has_vol else 0)),
         margin=dict(l=20, r=20, t=50, b=20),
         template="plotly_dark",
-        hovermode="x unified",
+        hovermode="x",
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0),
     )
     return fig
 

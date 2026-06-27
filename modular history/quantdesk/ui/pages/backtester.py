@@ -247,6 +247,12 @@ def _render_single(ctx, history):
                         opt_kwargs_dynamic[opt["var"]] = np.arange(float(start), float(end), float(step)).tolist()
         opt_maximize = st.selectbox("Maximize Metric", list(_MAXIMIZE_MAP.keys()))
 
+    pro_chart = st.checkbox(
+        "📊 Also render the engine-native (Bokeh) 'Pro' chart",
+        help="backtesting.py's built-in linked chart: price + indicators + equity + drawdown + "
+             "trade markers, auto-downsampled. Runs one extra pass, so it's a touch slower.",
+    )
+
     if st.button("Run Backtest", use_container_width=True):
         if not os.path.exists(selected_file):
             st.error("Data file not found on disk.")
@@ -353,9 +359,22 @@ def _render_single(ctx, history):
                             arr = getattr(strat_instance, attr)
                             if hasattr(arr, "__len__") and len(arr) == len(out_df):
                                 out_df[var_name] = list(arr)
-                    st.plotly_chart(render_plotly_backtest(out_df, trades), use_container_width=True)
+                    st.plotly_chart(
+                        render_plotly_backtest(out_df, trades, st.session_state.get("indicators", [])),
+                        use_container_width=True,
+                    )
                 except Exception as plot_e:
                     st.warning(f"Could not generate Plotly chart: {plot_e}")
+
+                # Step 6: optional engine-native (Bokeh) "Pro" chart
+                if pro_chart:
+                    st.subheader("Engine-native Chart (Bokeh)")
+                    try:
+                        with st.spinner("Rendering engine-native chart…"):
+                            html = engine.native_bokeh_html(df, code, init_cash, params["total_commission"], params["margin"])
+                        components.html(html, height=620, scrolling=True)
+                    except Exception as be:
+                        st.warning(f"Could not generate the engine-native Bokeh chart: {be}")
 
                 # #2 Real India charges — Gross vs Net
                 charges = _render_charges_panel(stats, trades, segment, init_cash, params["total_commission"])

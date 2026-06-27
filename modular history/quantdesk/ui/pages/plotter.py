@@ -93,7 +93,7 @@ def render(ctx):
 
                 st.subheader("Interactive Signal Visualization (Plotly)")
                 try:
-                    st.plotly_chart(render_plotly_backtest(out_df, trades), use_container_width=True)
+                    st.plotly_chart(render_plotly_backtest(out_df, trades, indicators), use_container_width=True)
                 except Exception as plot_e:
                     st.warning(f"Could not generate interactive chart: {plot_e}")
             except Exception as e:

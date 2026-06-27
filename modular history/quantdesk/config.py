@@ -100,3 +100,26 @@ INDICATOR_OUTPUT_SUFFIXES = {
     "Keltner Channels": ["_upper", "_mid", "_lower"],
     "Donchian Channels": ["_upper", "_mid", "_lower"],
 }
+
+# Chart placement per indicator type (chart redesign): "overlay" = drawn ON the price axis
+# (price-scale lines/bands); "panel" = drawn in its OWN stacked sub-panel (own scale, e.g.
+# oscillators 0-100, MACD near 0, ATR in price units). Anything not listed defaults to overlay.
+# This is the SINGLE source of truth the chart layout reads — see viz/charts.py.
+INDICATOR_PLACEMENT = {
+    # overlays (price scale)
+    "SMA": "overlay", "EMA": "overlay", "WMA": "overlay", "ALMA": "overlay", "VWAP": "overlay",
+    "Bollinger Bands": "overlay", "Supertrend": "overlay", "Keltner Channels": "overlay",
+    "Donchian Channels": "overlay", "Parabolic SAR": "overlay",
+    # own-scale panels (oscillators / unbounded / non-price)
+    "RSI": "panel", "ADX": "panel", "Stochastic Oscillator": "panel", "MACD": "panel",
+    "ATR": "panel", "ATR-Normalized Angle": "panel", "Angle of Indicator": "panel",
+    "Hurst Exponent": "panel", "R-Squared": "panel", "HMM Regime": "panel",
+    "Linear Regression Slope": "panel",
+}
+
+# Reference guide-lines drawn inside an indicator's panel (y-values).
+INDICATOR_PANEL_GUIDES = {
+    "RSI": [30, 70], "Stochastic Oscillator": [20, 80], "ADX": [25], "MACD": [0],
+    "ATR-Normalized Angle": [0], "Angle of Indicator": [0], "Linear Regression Slope": [0],
+    "Hurst Exponent": [0.5],
+}

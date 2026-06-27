@@ -6,7 +6,7 @@
   "target_root": "D:/mbs/historydownloader/modular history",
   "verification_data": "D:/simpleton/historydownloader/data",
   "engine_decision": "keep backtesting.py",
-  "updated_at": "2026-06-27 09:48:13",
+  "updated_at": "2026-06-27 10:28:15",
   "status_legend": [
     "pending",
     "in_progress",
@@ -144,8 +144,8 @@
       "source_lines": "1442-1451, 1653-1661",
       "purpose": "StrategyConfig + safe_name + selectable_columns (fixes multi-output omission bug)",
       "verified": true,
-      "notes": "smoke-tested OK",
-      "updated_at": "2026-06-25 13:58:22"
+      "notes": "classify_columns",
+      "updated_at": "2026-06-27 10:28:15"
     },
     "quantdesk/data/loader.py": {
       "status": "verified",
@@ -372,8 +372,8 @@
       "source_lines": "70-121",
       "purpose": "render_plotly_backtest + shared chart helpers",
       "verified": true,
-      "notes": "#4 quantstats tearsheet + #6 equity overlay",
-      "updated_at": "2026-06-26 17:51:40"
+      "notes": "multi-panel redesign",
+      "updated_at": "2026-06-27 10:28:14"
     },
     "quantdesk/ui/components.py": {
       "status": "verified",
@@ -623,6 +623,12 @@
       "verified": true,
       "notes": "5 saver tests",
       "updated_at": "2026-06-27 09:26:58"
+    },
+    "tests/test_chart_layout.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "3 chart-layout tests",
+      "updated_at": "2026-06-27 10:28:15"
     }
   },
   "feature_parity_checklist": {
@@ -1475,6 +1481,26 @@
       "ts": "2026-06-27 09:48:13",
       "agent": "orchestrator",
       "event": "file:quantdesk/ui/components.py -> verified (render_save_folders (dual folder inputs))"
+    },
+    {
+      "ts": "2026-06-27 10:28:14",
+      "agent": "feature",
+      "event": "Chart redesign (multi-agent verdict: keep Plotly, fix design). Oscillators (RSI/ADX/Stoch/MACD/ATR/Hurst/R2/HMM/LinReg) now render in own stacked panels with guide lines; price-scale indicators stay overlaid; range-scaled signal markers; Scattergl traces; candle downsampling >8000 bars; intraday rangebreaks; readable hover/legend. config.INDICATOR_PLACEMENT + models.classify_columns drive it. 3 chart tests + live screenshot verified; all pages render."
+    },
+    {
+      "ts": "2026-06-27 10:28:14",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/viz/charts.py -> verified (multi-panel redesign)"
+    },
+    {
+      "ts": "2026-06-27 10:28:15",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/models.py -> verified (classify_columns)"
+    },
+    {
+      "ts": "2026-06-27 10:28:15",
+      "agent": "orchestrator",
+      "event": "file:tests/test_chart_layout.py -> verified (3 chart-layout tests)"
     }
   ]
 }

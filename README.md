@@ -65,7 +65,11 @@ Both open a Streamlit dashboard at `http://localhost:8501`.
 - **Corporate-actions download crash** fixed (int64 Volume on pandas ≥ 3).
 - **CSV + Parquet saving** — choose Parquet / CSV / **Both** in Settings, with an optional
   separate CSV folder; each download page now has both a Parquet and a CSV folder input.
-- **37 passing tests** (parity still byte-exact).
+- **Chart redesign (v6.1)** — oscillators (RSI/ADX/Stochastic/MACD/…) now render in their **own
+  stacked panels** with guide lines instead of being crushed onto the price axis; price-scale
+  indicators stay overlaid. Faster (WebGL, candle downsampling, intraday gap-collapse) and an
+  optional engine-native **Bokeh "Pro chart"** toggle.
+- **41 passing tests** (parity still byte-exact).
 
 ## 🆕 What's new in v5 — *Honest Numbers*
 

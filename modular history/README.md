@@ -57,6 +57,9 @@ and the ML Pattern Finder.
   position sizing, and the tab-switch / search lag (instrument selector re-scan).
 - Corporate-actions split download crash fixed (int64 Volume on pandas ≥ 3).
 - CSV + Parquet dual-format saving with separate folders.
+- **v6.1 chart redesign** — oscillators (RSI/ADX/Stochastic/MACD/…) render in their own stacked
+  panels with guide lines instead of being crushed onto the price axis; WebGL + candle
+  downsampling + intraday gap-collapse; optional engine-native Bokeh "Pro chart" toggle.
 
 ## Architecture
 
