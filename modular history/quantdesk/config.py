@@ -62,6 +62,17 @@ DEFAULTS = {
 QUALITY_WARN_THRESHOLD: float = float(os.getenv("QUANTDESK_QUALITY_WARN", "80"))
 QUALITY_BLOCK_THRESHOLD: float = float(os.getenv("QUANTDESK_QUALITY_BLOCK", "40"))
 
+# --- ML PATTERN-FINDER RIGOR (v7 Phase B) ----------------------------------
+# Defaults for the ML Pattern Finder's statistical gate. A mined rule is only
+# promoted to "validated" when, on the OUT-OF-SAMPLE (held-out) trades, it has at
+# least ML_SAMPLE_FLOOR matches, survives Benjamini-Hochberg FDR at ML_FDR_ALPHA,
+# and its Wilson lower-bound win-rate still beats the baseline. Anything weaker is
+# surfaced as an "exploratory candidate" only. (Deliberately conservative — small
+# samples lie; see ROADMAP_v7.md Phase B.)
+ML_SAMPLE_FLOOR: int = int(os.getenv("QUANTDESK_ML_SAMPLE_FLOOR", "30"))
+ML_HOLDOUT_FRAC: float = float(os.getenv("QUANTDESK_ML_HOLDOUT_FRAC", "0.3"))
+ML_FDR_ALPHA: float = float(os.getenv("QUANTDESK_ML_FDR_ALPHA", "0.10"))
+
 # --- BROKER API (read from .env; never hard-coded) -------------------------
 UPSTOX_API_KEY = os.getenv("UPSTOX_API_KEY", "")
 UPSTOX_API_SECRET = os.getenv("UPSTOX_API_SECRET", "")

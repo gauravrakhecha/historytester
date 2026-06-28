@@ -65,7 +65,16 @@ volume-based (source fixed to Volume).
 
 ---
 
-## Phase B — ML rigor  (make discovered rules trustworthy)  [effort: M]
+## Phase B — ML rigor  (make discovered rules trustworthy)  [effort: M]  ✅ DONE 2026-06-28
+**Implemented** (56 tests green; AppTest + real-data drive): `ml/patterns.py` rewritten + `ml_finder.py` +
+`indicators.partition_features`/`CROSS_ASSET_COMPARABLE_TYPES` + `batch.extract_trades` `Source` tagging +
+`config.ML_SAMPLE_FLOOR/ML_HOLDOUT_FRAC/ML_FDR_ALPHA`. The four points below are all done:
+ML finder defaults to normalized features (warns + per-instrument z-scores raw ones before bulk concat);
+time-ordered holdout (70/30) **and** walk-forward k-fold; per-leaf sample-size floor → one-sided binomial
+vs OOS baseline → Benjamini-Hochberg FDR → Wilson lower-bound gate; only survivors promoted to `rules`,
+the rest surfaced as `candidate_rules` with a reject reason. XGBoost importance kept descriptive (not gated).
+Tests: `tests/test_ml_rigor.py`. Original implementation (for reference):
+
 Edit `quantdesk/ml/patterns.py` + `quantdesk/ui/pages/ml_finder.py`:
 1. **Default to normalized features** — the ML page should steer users to the Phase-A features (and/or
    auto-derive them from selected base indicators); warn when raw absolute columns are selected.
@@ -83,7 +92,15 @@ Edit `quantdesk/ml/patterns.py` + `quantdesk/ui/pages/ml_finder.py`:
 
 ---
 
-## Phase C — Optimizer validation  (stop compounding overfitting)  [effort: M-L]
+## Phase C — Optimizer validation  (stop compounding overfitting)  [effort: M-L]  ✅ DONE 2026-06-28
+**Implemented** (67 tests green; AppTest + real-data drive): all four items below shipped.
+`metrics.py` → `probabilistic_sharpe_ratio`/`expected_max_sharpe`/`deflated_sharpe_ratio`/`sharpe_moments`/
+`validation_stats` + `monte_carlo_bootstrap`. `optimizer.optimize` → `(stats, best, meta)` exposing the grid
+`return_heatmap` + Optuna trials/per-trial Sharpes + a `PSR_OBJECTIVE`. NEW `backtest/wfo.py` walk-forward
+(anchored/rolling, stitched OOS equity, Walk-Forward Efficiency). `charts.py` → `parameter_stability_heatmap`/
+`monte_carlo_fan`/`walk_forward_equity`. Backtester page surfaces all four. Tests: `tests/test_optimizer_validation.py`.
+Original plan (for reference):
+
 - `quantdesk/backtest/metrics.py`: add **Deflated / Probabilistic Sharpe** (correct best-of-N trials;
   feed `n_trials`); have Optuna optionally maximise DSR.
 - `quantdesk/backtest/optimizer.py`: in grid mode use `Backtest.optimize(..., return_heatmap=True)`

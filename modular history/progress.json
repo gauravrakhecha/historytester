@@ -1,20 +1,20 @@
 {
   "project": "QuantDesk — Unified Market Data Downloader & Quant Engine (modular edition)",
-  "as_of": "2026-06-27",
-  "current_version": "v6.1",
-  "one_line_status": "Modular rebuild SHIPPED through v6.1 (on GitHub). v7 Phase A (normalized cross-asset feature library) DONE locally & verified (45 tests) but NOT yet pushed. NEXT = v7 Phase B (ML rigor: holdout + significance) then Phase C (optimizer validation) — see ROADMAP_v7.md. historytester(main,v6.1) + private sambhav synced to v6.1. Original monolith retained.",
+  "as_of": "2026-06-28",
+  "current_version": "v7.0",
+  "one_line_status": "Modular rebuild SHIPPED through v7.0 (on GitHub). v7 'Feature Maturity' = Phases A (normalized cross-asset feature library) + B (ML rigor: holdout/k-fold + Wilson/binomial/BH-FDR gate + per-instrument normalization) + C (optimizer validation: Probabilistic/Deflated Sharpe, parameter-stability heatmap, walk-forward backtest/wfo.py, Monte-Carlo bootstrap bands) — ALL DONE & verified (67 tests green; AppTest + real-data drives) and RELEASED together as v7.0 (the earlier v7.0-alpha was Phase A only). historytester(main, tag v7.0) + private sambhav synced to v7.0. Original monolith retained. NEXT = remaining deferred_roadmap items (trade analytics MAE/MFE/R-multiple/Kelly, Trade Replay, benchmark engine alpha/beta vs Nifty).",
 
   "next_phase": {
     "id": "v7_feature_maturity",
-    "status": "Phase A DONE (normalized feature library shipped locally, 45 tests green); Phase B (ML rigor) + Phase C (optimizer validation) PENDING. NOT yet pushed to GitHub.",
+    "status": "Phases A + B + C ALL DONE and RELEASED as v7.0 (67 tests green; AppTest + real-data drives). historytester main + tag v7.0; sambhav synced to v7.0.",
     "priority": "HIGH",
     "plan_file": "ROADMAP_v7.md  (implementation-ready)",
     "why": "Multi-agent maturity audit (run wf_ebc554f3-006; aborted on schema cap but 4/5 reviewers completed, unanimous, recovered from transcripts) confirmed the user's critique: Backtester=usable, Optimizer=amateur, ML Pattern Finder=amateur/toy. ML trains on RAW absolute features (metrics.enrich_trades ~L73-89; ml/patterns.py) that don't generalize across instruments/asset-classes; no holdout/significance; bulk mode concatenates different-scale instruments.",
     "fix_thesis": "Make features RELATIVE/NORMALIZED & comparable (validated, unanimous): volume/SMA20(volume), EMA slope in ATR units, distance-from-MA in ATR, z-score, rolling percentile rank, n-bar return. Implement as NEW INDICATOR TYPES in the registry so builder + ML + plotter all get them via the single-source pipeline. Then add ML holdout + Wilson/BH-FDR significance, then optimizer validation (Deflated Sharpe, parameter-stability heatmap, walk-forward, Monte-Carlo).",
     "phases": {
       "A_normalized_feature_library": "DONE (2026-06-27): 6 new indicator types added — 'Ratio to SMA' (x/SMA, use Volume source for volume-vs-avg), 'Distance from MA (ATR)', 'MA Slope (ATR)', 'Z-Score', 'Percentile Rank', 'Return (n-bar)'. Implemented via config.INDICATOR_PLACEMENT(panel)/PANEL_GUIDES + indicators.INDICATOR_TYPES/PARAM_SPECS + 6 vectorised helpers (ratio_to_sma_vec/dist_from_ma_atr_vec/ma_slope_atr_vec/zscore_vec/pctile_rank_vec/ret_n_vec) + emit_indicator branches + compiler._namespace injection. Builder/ML/plotter all get them via the single-source pipeline; they render in own panels (v6.1). tests/test_features.py (4 tests: formula match, panel placement, codegen+compile+backtest, cross-asset comparability). Full suite 45/45 green.",
-      "B_ml_rigor": "ml/patterns.py + ml_finder.py: default to normalized features; per-instrument normalization before bulk concat; time-ordered holdout/k-fold; per-rule Wilson lower-bound + binomial vs baseline + Benjamini-Hochberg FDR + sample-size floor. Effort M.",
-      "C_optimizer_validation": "metrics: Deflated/Probabilistic Sharpe; optimizer: surface grid return_heatmap (currently discarded) for parameter stability; new backtest/wfo.py walk-forward; Monte-Carlo bootstrap bands. Effort M-L."
+      "B_ml_rigor": "DONE (2026-06-28): ml/patterns.py rewritten + ml_finder.py + indicators.partition_features/CROSS_ASSET_COMPARABLE_TYPES + batch.extract_trades Source tagging + config ML_SAMPLE_FLOOR/ML_HOLDOUT_FRAC/ML_FDR_ALPHA. (1) ML finder DEFAULTS to normalized cross-asset features (v7 set + bounded oscillators); raw/absolute features are warned and per-instrument z-scored (groupby Source) BEFORE bulk concat. (2) Time-ordered holdout (70/30, default) OR walk-forward k-fold (TimeSeriesSplit): rules mined on train, scored OOS via dt leaf->predicate re-evaluation. (3) Gate per leaf: OOS sample-size floor (30) -> one-sided binomial vs OOS baseline -> Benjamini-Hochberg FDR (alpha 0.10) -> Wilson lower-bound must still beat baseline. Survivors -> result['rules'] (OOS win-rate, wilson_lb, p/q, train vs OOS); failures -> result['candidate_rules'] with reject reason. XGBoost importance kept descriptive (full matrix, NOT gated). Helpers wilson_lower_bound/binom_sf/benjamini_hochberg exported. tests/test_ml_rigor.py (11, synthetic+portable). Legacy positional mine_patterns call + old ML tests still green (parity). Verified: full pytest 56 green, AppTest renders ml_finder, real-RELIANCE end-to-end drive (defaulting/Source/holdout/k-fold/gate all correct; thin single-instrument data correctly yields 0 promoted, noise demoted). Effort M.",
+      "C_optimizer_validation": "DONE (2026-06-28): metrics.py +probabilistic_sharpe_ratio/expected_max_sharpe/deflated_sharpe_ratio/sharpe_moments/validation_stats (Bailey-LdP PSR/DSR from daily returns; DSR deflates for #configs tried) + monte_carlo_bootstrap (resample trade ReturnPct -> P5/P50/P95 final-equity & worst-DD bands + per-step fan). optimizer.optimize now returns (stats,best,meta): grid surfaces the previously-discarded return_heatmap; Optuna records trials table + per-trial Sharpes (feeds DSR) + a PSR_OBJECTIVE ('__PSR__') maximize option. engine.run_single carries meta as info['opt_meta']. NEW backtest/wfo.py walk_forward (anchored/rolling: re-optimize per IS window via optimizer.optimize, trade frozen params on next OOS window, stitch OOS equity, report Walk-Forward Efficiency=OOS/IS per window). viz/charts.py +parameter_stability_heatmap (1D line/2D heatmap)/monte_carlo_fan/walk_forward_equity. backtester page: _render_validation (PSR always, DSR for Optuna, stability surface), _render_monte_carlo expander, _render_walk_forward section; 'Probabilistic Sharpe (PSR)' added to _MAXIMIZE_MAP. tests/test_optimizer_validation.py (11). Verified: full pytest 67 green, AppTest renders backtester (26 metrics), real-RELIANCE drive (PSR/grid-heatmap/Optuna-DSR=27%/MC-bands-bracket-realized/WFE=-1.2 all correct; the overfit EMA-crossover is correctly flagged). Effort M-L."
     },
     "release_framing": "v7.0 = Phase A + B (the user's core complaint); v7.1 = Phase C.",
     "implementation_pattern": "Reuse the proven ALMA/LR-Slope/R2 approach: vectorised helper in indicators.py + inject into compiler._namespace() + emit via self.I. New types are 'panel' placement so the v6.1 chart auto-shows them in own panels. Parity unaffected (new types). Add tests/test_features.py, test_ml_rigor.py, test_optimizer_validation.py.",
@@ -40,17 +40,17 @@
       "url": "https://github.com/gauravrakhecha/historytester",
       "visibility": "PRIVATE",
       "branches": ["main"],
-      "latest_tag": "v6.1",
-      "latest_commit": "f369458",
-      "layout": "root = v3 single-file app (upstox_app.py, LICENSE, README, CHANGELOG, User Guide PDF, bats) + 'modular history/' subfolder = the v4-v6.1 modular app",
-      "tags": ["v3.0","v3.1","v3.2","v3.3","v4.0","v5.0","v6.0","v6.1"],
+      "latest_tag": "v7.0",
+      "latest_commit": "see tag v7.0",
+      "layout": "root = v3 single-file app (upstox_app.py, LICENSE, README, CHANGELOG, User Guide PDF, bats) + 'modular history/' subfolder = the v4-v7.0 modular app",
+      "tags": ["v3.0","v3.1","v3.2","v3.3","v4.0","v5.0","v6.0","v6.1","v7.0-alpha","v7.0"],
       "notes": "Old sambhav/sabhav branches are now deleted; only main remains."
     },
     "sambhav": {
       "url": "https://github.com/gauravrakhecha/sambhav",
       "visibility": "PRIVATE",
       "purpose": "Dedicated collaborator workspace (GitHub has no per-branch read access, so a separate repo gives true isolation). Invite collaborator here only.",
-      "synced_to": "v6.1 (commit 5ca228c)",
+      "synced_to": "v7.0",
       "sync_procedure": "clone historytester main (depth 1) -> clone sambhav -> replace sambhav working tree (keep .git) with historytester content (tar excluding .git) -> commit 'Sync to vX' -> push. Always re-run secret scan."
     }
   },
@@ -75,7 +75,7 @@
     "8. If asked, sync sambhav repo (see repos.sambhav.sync_procedure)."
   ],
 
-  "stats": {"quantdesk_py_modules": 56, "tests": 41, "modular_json_index": "62/62 files verified"},
+  "stats": {"quantdesk_py_modules": 57, "tests": 67, "modular_json_index": "62/62 files verified"},
 
   "architecture": {
     "entry": "app_main.py (thin: page config, auth sidebar, nav radio, dispatch to one render(ctx) page module; per-page auth gate; session-cached master_df + precomputed selector meta)",
@@ -84,7 +84,7 @@
     "quantdesk/data": "loader (csv/parquet, mtime cache), resample (vectorised per-session), corporate_actions (dtype-safe splits), master_list (cache_resource + vectorised classifier + 24h disk cache), quality (gate), recovery, saver (Parquet/CSV/Both + separate csv dir)",
     "quantdesk/brokers": "base, upstox/zerodha/dhan (fetch_single + upstox options), downloader (async orchestrator, progress_cb)",
     "quantdesk/strategy": "models (StrategyConfig, safe_name, selectable_columns, classify_columns), indicators (registry+codegen+param specs+vectorised ALMA/LRSlope/R2; USE_VECTORIZED flag), codegen (build_strategy_code), compiler (bytecode-cached fresh class), presets",
-    "quantdesk/backtest": "worker (ProcessPool, quality gate, buried metrics), engine (run_single + IS/OOS split + native_bokeh_html), optimizer (Optuna+grid, int-safe), batch (folder multi-core + extract_trades), metrics (stats + buried + equity_returns + yearly + enrich_trades)",
+    "quantdesk/backtest": "worker (ProcessPool, quality gate, buried metrics), engine (run_single + IS/OOS split + info['opt_meta'] + native_bokeh_html), optimizer (Optuna+grid, int-safe; returns (stats,best,meta) with grid return_heatmap + Optuna trials/per-trial-Sharpes + PSR_OBJECTIVE), wfo (NEW v7C: anchored/rolling walk-forward, stitched OOS equity + Walk-Forward Efficiency), batch (folder multi-core + extract_trades w/ Source tag), metrics (stats + buried + equity_returns + yearly + enrich_trades + v7C PSR/DSR/sharpe_moments/validation_stats/monte_carlo_bootstrap)",
     "quantdesk/costs/india.py": "Decimal STT/stamp/exchange/SEBI/brokerage/GST per segment (Equity Intraday/Delivery/Futures)",
     "quantdesk/ml/patterns.py": "XGBoost importance + decision-tree rules (reads per-trade 'ReturnPct')",
     "quantdesk/viz/charts.py": "render_plotly_backtest (multi-panel: overlays on price, oscillators in own panels w/ guides, Scattergl, candle downsample, intraday rangebreaks), equity_overlay, feature_importance_bar, quantstats tearsheet+metrics",
@@ -123,10 +123,10 @@
 
   "deferred_roadmap": {
     "high_value_next": [
-      "Walk-forward optimization (rolling/anchored) — currently only a single IS/OOS split.",
-      "Deflated/Probabilistic Sharpe + multiple-testing correction; Optuna maximize DSR.",
-      "Monte-Carlo / bootstrap confidence bands on the trade-return series.",
-      "Parameter-stability heatmap (grid already computes return_heatmap, currently discarded).",
+      "Walk-forward optimization (rolling/anchored) — DONE v7 Phase C (backtest/wfo.py).",
+      "Deflated/Probabilistic Sharpe + multiple-testing correction; Optuna maximize PSR/DSR — DONE v7 Phase C (metrics.py + optimizer PSR_OBJECTIVE).",
+      "Monte-Carlo / bootstrap confidence bands on the trade-return series — DONE v7 Phase C (metrics.monte_carlo_bootstrap + charts.monte_carlo_fan).",
+      "Parameter-stability heatmap (grid return_heatmap) — DONE v7 Phase C (optimizer meta + charts.parameter_stability_heatmap).",
       "Trade-level analytics: MAE/MFE, R-multiple, Kelly/half-Kelly (extend enrich_trades).",
       "Trade Replay / bar-by-bar step-through (enriched snapshots already exist).",
       "Benchmark engine: alpha/beta/IR vs Nifty buy&hold (feed QuantStats benchmark=).",
@@ -137,7 +137,7 @@
       "Strategy Builder delete-row index-drift: give each rule/zone/indicator a stable uuid widget key (currently positional -> deleting a row can mis-display remaining rows).",
       "Quality gate: add missing-bar/gap/session-boundary detection (currently only dup/bad-OHLC/zero-volume).",
       "Batch rows: persist dataset_hash/segment/net_return/equity_curve_json so batch runs appear in leaderboard/repro.",
-      "ML: real train/test holdout + significance + sample-size floor (only labeled 'exploratory' so far).",
+      "ML: real train/test holdout + significance + sample-size floor — DONE in v7 Phase B (2026-06-28).",
       "Loader: normalise timestamps to one tz convention (external CSVs with +05:30).",
       "options_chain: clear contracts_df when (instrument_key, expiry) selection changes (stale-save guard).",
       "Results: default delete target to inspected run + plain-language confirm.",
@@ -156,9 +156,8 @@
 
   "security_note": "compiler.py exec()s generated strategy source. Safe ONLY because every input is widget-constrained today. Any future free-text/custom-formula field or hand-edited preset = RCE risk -> add an AST whitelist + preset schema validation BEFORE shipping user-extensibility.",
 
-  "open_offers_to_user": [
-    "v7 Phase A is DONE & verified locally (45 tests). NEXT = v7 Phase B: ML rigor — default to normalized features, time-ordered holdout/k-fold, per-rule Wilson lower-bound + Benjamini-Hochberg FDR + sample floor, per-instrument normalization before bulk aggregation (ml/patterns.py + ml_finder.py). Then Phase C (optimizer validation).",
-    "Phase A is NOT yet pushed to GitHub — push as part of v7.0 (after Phase B) or ship a v7.0-alpha now if requested.",
+    "v7 Phases A + B + C are ALL DONE, verified (67 tests + AppTest + real-data drives) and RELEASED as v7.0 (pushed to historytester main + tag v7.0 + GitHub release; sambhav synced to v7.0) on 2026-06-28.",
+    "NEXT candidates (deferred_roadmap.high_value_next): trade-level analytics (MAE/MFE, R-multiple, Kelly), Trade Replay, benchmark engine (alpha/beta/IR vs Nifty buy&hold), persist enriched trade log to DB.",
     "Invite a collaborator to the sambhav repo (need their GitHub username; gh api PUT repos/gauravrakhecha/sambhav/collaborators/<user> -f permission=push|pull)."
   ]
 }

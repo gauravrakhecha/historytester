@@ -19,7 +19,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from quantdesk.backtest import batch as batch_mod
-from quantdesk.backtest import engine, metrics
+from quantdesk.backtest import engine, metrics, wfo
+from quantdesk.backtest.optimizer import PSR_OBJECTIVE
 from quantdesk.config import QUALITY_BLOCK_THRESHOLD, QUALITY_WARN_THRESHOLD
 from quantdesk.core import db, settings_repo
 from quantdesk.core import reproducibility as repro
@@ -32,9 +33,12 @@ from quantdesk.viz import charts
 from quantdesk.viz.charts import render_plotly_backtest
 
 # Optimiser "maximize" choices -> backtesting.py stat keys (₹ label maps to the $ key).
+# "Probabilistic Sharpe (PSR)" is a v7 Phase-C objective: Optuna maximizes PSR per trial; grid mode
+# falls back to Sharpe (DSR of the winner is reported afterwards either way).
 _MAXIMIZE_MAP = {
     "Return [%]": "Return [%]",
     "Sharpe Ratio": "Sharpe Ratio",
+    "Probabilistic Sharpe (PSR)": PSR_OBJECTIVE,
     "Sortino Ratio": "Sortino Ratio",
     "Calmar Ratio": "Calmar Ratio",
     "Win Rate [%]": "Win Rate [%]",
@@ -91,6 +95,113 @@ def _render_isoos(info: dict) -> None:
     ]
     st.markdown("##### In-Sample vs Out-of-Sample (overfitting check)")
     st.dataframe(pd.DataFrame(rows).set_index("Metric"), use_container_width=True)
+
+
+def _fmt_prob(p) -> str:
+    return "N/A" if p is None or pd.isna(p) else f"{p * 100:.1f}%"
+
+
+def _render_validation(stats, info) -> None:
+    """Statistical-significance panel (#C): PSR always; DSR + parameter-stability for optimized runs."""
+    meta = (info or {}).get("opt_meta")
+    n_trials = (meta or {}).get("n_trials") or 1
+    trial_sharpes = (meta or {}).get("trial_sharpes")
+    vs = metrics.validation_stats(stats, n_trials=n_trials, trial_sharpes=trial_sharpes)
+
+    st.markdown("##### 🎯 Statistical significance")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Sharpe (per-period)", f"{vs['sr']:.3f}" if not pd.isna(vs["sr"]) else "N/A",
+              help="Daily Sharpe behind PSR/DSR (not annualized).")
+    c2.metric("Probabilistic Sharpe", _fmt_prob(vs["psr"]),
+              help="P(true Sharpe > 0) given sample length, skew and fat tails. ≥95% is strong.")
+    if meta is not None and not pd.isna(vs["dsr"]):
+        c3.metric("Deflated Sharpe", _fmt_prob(vs["dsr"]),
+                  help=f"PSR deflated for the {n_trials} configurations tried — corrects best-of-N "
+                       "selection bias. ≥95% = the edge likely survives the search.")
+    elif meta is not None:
+        c3.metric("Deflated Sharpe", "Optuna only",
+                  help="DSR needs each trial's Sharpe — use the Optuna engine to compute it.")
+    if not pd.isna(vs["psr"]) and vs["psr"] < 0.90:
+        st.caption("⚠️ PSR below 90% — this Sharpe isn't yet statistically convincing (short/noisy sample).")
+
+    if meta is not None:
+        hm, trials = meta.get("heatmap"), meta.get("trials")
+        with st.expander("📈 Parameter stability (robust plateau vs fragile spike?)", expanded=False):
+            if hm is not None and len(hm) > 1:
+                st.plotly_chart(charts.parameter_stability_heatmap(hm, meta.get("maximize", "Objective")),
+                                use_container_width=True)
+                st.caption("A broad bright region = robust optimum; a lone peak in a sea of poor values = overfit.")
+            elif trials is not None and not trials.empty:
+                st.caption("Optuna trials (objective per configuration):")
+                st.dataframe(trials.sort_values("objective", ascending=False).round(4),
+                             use_container_width=True)
+            else:
+                st.info("No parameter-stability surface available for this run.")
+
+
+def _render_monte_carlo(trades, init_cash: float) -> None:
+    """Monte-Carlo bootstrap of the trade sequence (#C) — distribution of outcomes by luck of order."""
+    with st.expander("🎲 Monte-Carlo robustness (bootstrap of trade order)", expanded=False):
+        if trades is None or trades.empty or "ReturnPct" not in trades.columns:
+            st.info("Need a completed trade log with per-trade returns to run a bootstrap.")
+            return
+        n_sims = st.slider("Simulations", 200, 5000, 1000, step=200, key="mc_sims")
+        mc = metrics.monte_carlo_bootstrap(trades["ReturnPct"], init_cash=init_cash, n_sims=int(n_sims))
+        if mc.get("error"):
+            st.info(mc["error"])
+            return
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Median final equity", f"₹{mc['final_p50']:,.0f}",
+                  help=f"P5 ₹{mc['final_p5']:,.0f} · P95 ₹{mc['final_p95']:,.0f}")
+        c2.metric("Return P5–P95", f"{mc['ret_p5']:.1f}% … {mc['ret_p95']:.1f}%",
+                  help="5th–95th percentile of total return across reshuffled trade orders.")
+        c3.metric("Worst drawdown (P5)", f"{mc['mdd_p5']:.1f}%",
+                  help=f"Median {mc['mdd_p50']:.1f}% — how bad luck-of-ordering could get.")
+        st.plotly_chart(charts.monte_carlo_fan(mc["bands"]), use_container_width=True)
+        st.caption(f"{mc['n_sims']:,} bootstraps over {mc['n_trades']} trades. The realized curve should "
+                   "sit inside the band; hugging an edge = the result leaned on trade ordering / luck.")
+
+
+def _render_walk_forward(selected_file, code, opt_kwargs, maximize_key, opt_mode, n_trials, params) -> None:
+    """Walk-forward analysis section (#C) — re-optimize per IS window, trade frozen params OOS."""
+    st.divider()
+    st.subheader("🔁 Walk-Forward Analysis")
+    if not opt_kwargs:
+        st.info("Tick at least one parameter to optimize (above) to enable walk-forward.")
+        return
+    w1, w2, w3 = st.columns(3)
+    n_windows = w1.number_input("Windows", 2, 12, 4, key="wf_windows")
+    oos_frac = w2.slider("OOS fraction (total)", 0.2, 0.6, 0.4, step=0.05, key="wf_oos")
+    anchored = w3.selectbox("Window type", ["Anchored", "Rolling"], key="wf_anchor") == "Anchored"
+    if not st.button("Run Walk-Forward (slower)", use_container_width=True):
+        return
+    if not os.path.exists(selected_file):
+        st.error("Data file not found on disk.")
+        return
+    pbar = st.progress(0, text="Walk-forward…")
+    try:
+        df = load_indexed(selected_file)
+        res = wfo.walk_forward(
+            df, code, params["initial_capital"], params["total_commission"], params["margin"],
+            opt_kwargs=opt_kwargs, maximize=maximize_key, mode=opt_mode,
+            n_windows=int(n_windows), oos_frac=float(oos_frac), anchored=anchored,
+            n_trials=int(n_trials), progress_cb=lambda p, t: pbar.progress(min(1.0, p), text=t),
+        )
+    except Exception as e:  # noqa: BLE001
+        st.warning(f"Walk-forward could not run: {e}")
+        return
+    m1, m2, m3 = st.columns(3)
+    wfe = res["wfe_median"]
+    m1.metric("Walk-Forward Efficiency", f"{wfe:.2f}" if not pd.isna(wfe) else "N/A",
+              help="Median (OOS return ÷ IS return) per window. ~1.0 = edge holds; <0.5 = overfit.")
+    cor = res["combined_oos_return_pct"]
+    m2.metric("Combined OOS Return", f"{cor:.1f}%" if not pd.isna(cor) else "N/A")
+    m3.metric("Windows", res["n_windows"])
+    if len(res["stitched_equity"]):
+        st.plotly_chart(charts.walk_forward_equity(res["stitched_equity"]), use_container_width=True)
+    st.dataframe(res["windows"], use_container_width=True)
+    st.caption("Each window re-optimizes on its in-sample slice, then trades those frozen params on the "
+               "next unseen slice. Consistent OOS results across windows is the real robustness test.")
 
 
 def _render_charges_panel(stats, trades, segment: str, init_cash: float, total_commission: float) -> dict:
@@ -282,6 +393,7 @@ def _render_single(ctx, history):
                     maximize=maximize_key, n_trials=int(n_trials), progress_cb=_cb if optimize_mode else None,
                 )
                 _render_isoos(info)  # #1 IS/OOS comparison for optimized runs
+                _render_validation(stats, info)  # #C PSR/DSR + parameter stability
 
                 st.subheader("Performance Metrics")
                 stats["Return (Ann.) [%]"] = metrics.annualized_return(stats)
@@ -382,6 +494,9 @@ def _render_single(ctx, history):
                 # #4 QuantStats tearsheet + risk analytics
                 _render_quantstats(stats)
 
+                # #C Monte-Carlo robustness (bootstrap of the trade sequence)
+                _render_monte_carlo(trades, init_cash)
+
                 # --- Save to DB (with buried metrics #5, charges #2, repro hashes #9, equity #6) ---
                 strat_label = st.session_state.get("strategy_label", "Custom")
                 config_dict = {
@@ -425,6 +540,12 @@ def _render_single(ctx, history):
             except Exception as e:
                 st.error(f"Error during backtest: {e}")
                 st.code(traceback.format_exc(), language="text")
+
+    # #C Walk-forward analysis (independent of the Run-Backtest button; reuses the optimizer config)
+    if enable_optimizer and opt_kwargs_dynamic:
+        maximize_key = _MAXIMIZE_MAP.get(opt_maximize, "Return [%]")
+        _render_walk_forward(selected_file, code, opt_kwargs_dynamic, maximize_key, opt_mode,
+                             int(n_trials), settings_repo.backtest_params())
 
 
 def _render_batch(ctx, history):

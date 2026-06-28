@@ -1,22 +1,40 @@
 # Changelog
 
-## v7.0-alpha — Feature Maturity, Phase A (2026-06-27, pre-release / WIP)
+## v7.0 — Feature Maturity (2026-06-28)
 
-First slice of the v7 "Feature Maturity" line (see `modular history/ROADMAP_v7.md`). A multi-agent
-maturity audit confirmed the ML Pattern Finder trained on **raw absolute features** that don't
-generalize across instruments/asset-classes. **Phase A** adds a **normalized, cross-asset-comparable
-feature library** as new no-code indicator types, so the builder, ML finder and plotter all gain
-signals that mean the same thing on RELIANCE, NIFTY or any instrument/timeframe:
+The v7 "Feature Maturity" milestone (see `modular history/ROADMAP_v7.md`), driven by a multi-agent
+maturity audit: the Optimizer was *amateur* and the ML Pattern Finder *toy-ish* (it trained on **raw
+absolute features** that don't generalize across instruments, with no out-of-sample test). v7 fixes
+all three layers. **Phases A + B + C** complete; **67 passing tests**, parity unaffected.
 
+**Phase A — normalized cross-asset feature library** (new no-code indicator types, so the builder, ML
+finder and plotter all gain signals that mean the same thing on RELIANCE, NIFTY or any instrument):
 - **Ratio to SMA** (`x / SMA(x,n)` — pick Volume for "volume vs its average"), **Distance from MA (ATR)**,
-  **MA Slope (ATR)**, **Z-Score**, **Percentile Rank**, **Return (n-bar)** — all rendered in their own panels.
-- Implemented via the registry (config placement/guides + indicators types/specs/vectorised helpers +
-  codegen + compiler namespace); cross-asset comparability and codegen→compile→backtest covered by
-  `tests/test_features.py`. Full suite **45/45** green; parity unaffected.
+  **MA Slope (ATR)**, **Z-Score**, **Percentile Rank**, **Return (n-bar)** — each rendered in its own panel.
+  Implemented via the registry (placement/guides + types/specs/vectorised helpers + codegen + compiler).
+  Covered by `tests/test_features.py`.
 
-Still pending for the full **v7.0**: Phase B (ML holdout + Wilson/BH-FDR significance gate) and
-Phase C (optimizer validation: Deflated Sharpe, parameter-stability heatmap, walk-forward, Monte-Carlo).
-This pre-release is a safety-net snapshot of work in progress.
+**Phase B — ML rigor** (`ml/patterns.py` + `ui/pages/ml_finder.py`): the pattern finder now
+- **defaults to the normalized features** and **z-scores any raw/absolute feature per-instrument**
+  before bulk aggregation (each trade frame is tagged with its `Source`);
+- mines rules on a **time-ordered holdout (70/30)** or **walk-forward k-fold** and scores them
+  **out-of-sample**;
+- promotes a rule only if it clears a **sample-size floor**, survives a one-sided binomial test vs the
+  OOS baseline under **Benjamini–Hochberg FDR**, and keeps a **Wilson lower-bound** edge over baseline —
+  everything weaker is shown as an "exploratory candidate" with the reason it failed. `tests/test_ml_rigor.py`.
+
+**Phase C — optimizer validation** (`backtest/metrics.py`, `optimizer.py`, new `backtest/wfo.py`,
+`viz/charts.py`, `ui/pages/backtester.py`):
+- **Probabilistic & Deflated Sharpe** (Bailey/López de Prado) — DSR deflates the winner's Sharpe for the
+  number of configurations tried; Optuna gains a "Probabilistic Sharpe (PSR)" objective;
+- **Parameter-stability surface** — the grid `return_heatmap` (previously discarded) is surfaced as a
+  1-D/2-D heatmap so you can see whether an optimum is a robust plateau or a fragile spike;
+- **Walk-forward analysis** — anchored/rolling: re-optimise per in-sample window, trade frozen params on
+  the next unseen window, stitch the OOS equity, and report **Walk-Forward Efficiency**;
+- **Monte-Carlo bootstrap** — resample the trade sequence for P5/P50/P95 final-equity & worst-drawdown
+  bands with a fan chart. `tests/test_optimizer_validation.py`.
+
+(Supersedes the `v7.0-alpha` pre-release, which shipped Phase A only.)
 
 ## v6.1 — Chart Redesign (2026-06-27)
 

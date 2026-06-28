@@ -6,7 +6,7 @@
   "target_root": "D:/mbs/historydownloader/modular history",
   "verification_data": "D:/simpleton/historydownloader/data",
   "engine_decision": "keep backtesting.py",
-  "updated_at": "2026-06-27 22:13:44",
+  "updated_at": "2026-06-28 17:46:31",
   "status_legend": [
     "pending",
     "in_progress",
@@ -37,6 +37,12 @@
       "detail": "static + unit + parity + live-app drive; defects -> fix agents -> re-verify until green"
     },
     "wave4_v5_now": {
+      "status": "verified"
+    },
+    "v7_phase_B_ml_rigor": {
+      "status": "verified"
+    },
+    "v7_phase_C_optimizer_validation": {
       "status": "verified"
     }
   },
@@ -100,8 +106,8 @@
       "source_lines": "41-64, 286-393",
       "purpose": "env/paths/constants/index presets/indicator-output suffix map",
       "verified": true,
-      "notes": "v7-A: 6 normalized indicator placements+guides",
-      "updated_at": "2026-06-27 22:13:43"
+      "notes": "v7-B: ML_SAMPLE_FLOOR/ML_HOLDOUT_FRAC/ML_FDR_ALPHA defaults",
+      "updated_at": "2026-06-28 17:46:30"
     },
     "quantdesk/core/db.py": {
       "status": "verified",
@@ -267,8 +273,8 @@
         "tests/test_indicators.py"
       ],
       "verified": true,
-      "notes": "v7-A: 6 normalized feature types + helpers",
-      "updated_at": "2026-06-27 22:13:43"
+      "notes": "v7-B: CROSS_ASSET_COMPARABLE_TYPES + partition_features (comparable vs raw)",
+      "updated_at": "2026-06-28 17:46:28"
     },
     "quantdesk/strategy/codegen.py": {
       "status": "verified",
@@ -318,8 +324,8 @@
         "tests/test_parity.py"
       ],
       "verified": true,
-      "notes": "#1 IS/OOS split; honest OOS headline",
-      "updated_at": "2026-06-26 17:51:39"
+      "notes": "v7-C: run_single carries info['opt_meta'] (heatmap/trials/trial_sharpes)",
+      "updated_at": "2026-06-28 17:46:29"
     },
     "quantdesk/backtest/optimizer.py": {
       "status": "verified",
@@ -330,8 +336,8 @@
         "tests/test_optimizer.py"
       ],
       "verified": true,
-      "notes": "audit fix: optuna int params + sentinel",
-      "updated_at": "2026-06-27 04:29:48"
+      "notes": "v7-C: returns (stats,best,meta) w/ grid return_heatmap + Optuna trials/per-trial Sharpes + PSR_OBJECTIVE",
+      "updated_at": "2026-06-28 17:46:29"
     },
     "quantdesk/backtest/batch.py": {
       "status": "verified",
@@ -339,8 +345,8 @@
       "source_lines": "2748-2833",
       "purpose": "folder batch via multiprocessing + aggregate + DB save",
       "verified": true,
-      "notes": "#5/#9 metrics+hashes persisted; #10 relabel",
-      "updated_at": "2026-06-26 17:51:39"
+      "notes": "v7-B: extract_trades tags each frame with Source (per-instrument normalization)",
+      "updated_at": "2026-06-28 17:46:29"
     },
     "quantdesk/backtest/metrics.py": {
       "status": "verified",
@@ -351,8 +357,8 @@
         "tests/test_metrics.py"
       ],
       "verified": true,
-      "notes": "#5 buried metrics + #4 equity_returns/equity_curve_daily",
-      "updated_at": "2026-06-26 17:51:39"
+      "notes": "v7-C: PSR/DSR (sharpe_moments/probabilistic/expected_max/deflated/validation_stats) + monte_carlo_bootstrap",
+      "updated_at": "2026-06-28 17:46:29"
     },
     "quantdesk/ml/patterns.py": {
       "status": "verified",
@@ -363,8 +369,8 @@
         "tests/test_ml_patterns.py"
       ],
       "verified": true,
-      "notes": "audit fix: ReturnPct",
-      "updated_at": "2026-06-27 04:29:47"
+      "notes": "v7-B: holdout/k-fold + Wilson LB + binomial vs OOS baseline + BH-FDR + sample floor; per-instrument normalization; importance descriptive-only",
+      "updated_at": "2026-06-28 17:46:28"
     },
     "quantdesk/viz/charts.py": {
       "status": "verified",
@@ -372,8 +378,8 @@
       "source_lines": "70-121",
       "purpose": "render_plotly_backtest + shared chart helpers",
       "verified": true,
-      "notes": "multi-panel redesign",
-      "updated_at": "2026-06-27 10:28:14"
+      "notes": "v7-C: parameter_stability_heatmap + monte_carlo_fan + walk_forward_equity",
+      "updated_at": "2026-06-28 17:46:30"
     },
     "quantdesk/ui/components.py": {
       "status": "verified",
@@ -480,8 +486,8 @@
       "source_lines": "2380-2907",
       "purpose": "Backtester & Optimizer page (single + folder batch)",
       "verified": true,
-      "notes": "#1/#2/#3/#4/#5/#9 wired; segment selector",
-      "updated_at": "2026-06-26 17:51:40"
+      "notes": "v7-C: validation panel (PSR/DSR + parameter stability), Monte-Carlo expander, Walk-Forward section",
+      "updated_at": "2026-06-28 17:46:29"
     },
     "quantdesk/ui/pages/results.py": {
       "status": "verified",
@@ -498,8 +504,8 @@
       "source_lines": "3004-3207",
       "purpose": "ML Pattern Finder page",
       "verified": true,
-      "notes": "render(ctx) ported; AppTest renders OK",
-      "updated_at": "2026-06-25 16:37:08"
+      "notes": "v7-B: defaults to normalized features; warns+per-instrument-normalizes raw; OOS-validated vs candidate rules; holdout/k-fold control",
+      "updated_at": "2026-06-28 17:46:28"
     },
     "app_main.py": {
       "status": "verified",
@@ -635,6 +641,24 @@
       "verified": true,
       "notes": "v7-A: 4 feature tests",
       "updated_at": "2026-06-27 22:13:44"
+    },
+    "quantdesk/backtest/wfo.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "v7-C: walk-forward (anchored/rolling; re-optimize per IS window, frozen params on OOS, stitch equity, Walk-Forward Efficiency)",
+      "updated_at": "2026-06-28 17:46:27"
+    },
+    "tests/test_ml_rigor.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "v7-B: 11 tests (Wilson/binomial/BH-FDR, edge-recovered, noise-rejected, k-fold, per-instrument norm, partition, API)",
+      "updated_at": "2026-06-28 17:46:27"
+    },
+    "tests/test_optimizer_validation.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "v7-C: 11 tests (PSR/DSR sanity, MC bands bracket realized, grid heatmap, opt_meta, WFO stitching)",
+      "updated_at": "2026-06-28 17:46:28"
     }
   },
   "feature_parity_checklist": {
@@ -1547,6 +1571,91 @@
       "ts": "2026-06-27 22:13:44",
       "agent": "roadmap",
       "event": "v7 Phase A DONE: normalized feature library (Ratio to SMA, Distance/Slope in ATR, Z-Score, Percentile Rank, n-bar Return) as registry indicator types -> builder+ML+plotter all comparable across assets. 45/45 tests, all pages render. Local/unreleased. NEXT=Phase B (ML holdout+significance)."
+    },
+    {
+      "ts": "2026-06-28 12:48:02",
+      "agent": "release",
+      "event": "v7.0-alpha pre-release pushed to historytester (main 7d86d0a) — Phase A normalized feature library + resume docs (progress.json/STATUS.md/ROADMAP_v7.md). Safety-net snapshot before continuing Phase B in a new session. sambhav NOT synced (alpha)."
+    },
+    {
+      "ts": "2026-06-28 17:46:27",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/backtest/wfo.py -> verified (v7-C: walk-forward (anchored/rolling; re-optimize per IS window, frozen params on OOS, stitch equity, Walk-Forward Efficiency))"
+    },
+    {
+      "ts": "2026-06-28 17:46:27",
+      "agent": "orchestrator",
+      "event": "file:tests/test_ml_rigor.py -> verified (v7-B: 11 tests (Wilson/binomial/BH-FDR, edge-recovered, noise-rejected, k-fold, per-instrument norm, partition, API))"
+    },
+    {
+      "ts": "2026-06-28 17:46:28",
+      "agent": "orchestrator",
+      "event": "file:tests/test_optimizer_validation.py -> verified (v7-C: 11 tests (PSR/DSR sanity, MC bands bracket realized, grid heatmap, opt_meta, WFO stitching))"
+    },
+    {
+      "ts": "2026-06-28 17:46:28",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ml/patterns.py -> verified (v7-B: holdout/k-fold + Wilson LB + binomial vs OOS baseline + BH-FDR + sample floor; per-instrument normalization; importance descriptive-only)"
+    },
+    {
+      "ts": "2026-06-28 17:46:28",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/ml_finder.py -> verified (v7-B: defaults to normalized features; warns+per-instrument-normalizes raw; OOS-validated vs candidate rules; holdout/k-fold control)"
+    },
+    {
+      "ts": "2026-06-28 17:46:28",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/indicators.py -> verified (v7-B: CROSS_ASSET_COMPARABLE_TYPES + partition_features (comparable vs raw))"
+    },
+    {
+      "ts": "2026-06-28 17:46:29",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/backtest/batch.py -> verified (v7-B: extract_trades tags each frame with Source (per-instrument normalization))"
+    },
+    {
+      "ts": "2026-06-28 17:46:29",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/backtest/metrics.py -> verified (v7-C: PSR/DSR (sharpe_moments/probabilistic/expected_max/deflated/validation_stats) + monte_carlo_bootstrap)"
+    },
+    {
+      "ts": "2026-06-28 17:46:29",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/backtest/optimizer.py -> verified (v7-C: returns (stats,best,meta) w/ grid return_heatmap + Optuna trials/per-trial Sharpes + PSR_OBJECTIVE)"
+    },
+    {
+      "ts": "2026-06-28 17:46:29",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/backtest/engine.py -> verified (v7-C: run_single carries info['opt_meta'] (heatmap/trials/trial_sharpes))"
+    },
+    {
+      "ts": "2026-06-28 17:46:29",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/backtester.py -> verified (v7-C: validation panel (PSR/DSR + parameter stability), Monte-Carlo expander, Walk-Forward section)"
+    },
+    {
+      "ts": "2026-06-28 17:46:30",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/viz/charts.py -> verified (v7-C: parameter_stability_heatmap + monte_carlo_fan + walk_forward_equity)"
+    },
+    {
+      "ts": "2026-06-28 17:46:30",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/config.py -> verified (v7-B: ML_SAMPLE_FLOOR/ML_HOLDOUT_FRAC/ML_FDR_ALPHA defaults)"
+    },
+    {
+      "ts": "2026-06-28 17:46:30",
+      "agent": "orchestrator",
+      "event": "phase:v7_phase_B_ml_rigor -> verified"
+    },
+    {
+      "ts": "2026-06-28 17:46:30",
+      "agent": "orchestrator",
+      "event": "phase:v7_phase_C_optimizer_validation -> verified"
+    },
+    {
+      "ts": "2026-06-28 17:46:31",
+      "agent": "orchestrator",
+      "event": "v7 A+B+C complete (67 tests green); publishing v7.0"
     }
   ]
 }

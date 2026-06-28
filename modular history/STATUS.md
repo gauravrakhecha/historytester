@@ -1,6 +1,6 @@
 # CURRENT STATUS — QuantDesk (modular) — resume doc
 
-**Last updated:** 2026-06-27 · **Current version:** **v6.1** · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
+**Last updated:** 2026-06-28 · **Current version:** **v7.0** · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
 
 > **Read this first after a context reset.** It captures everything needed to continue without re-deriving state.
 
@@ -10,16 +10,16 @@
 A modular rebuild of an independent app: the **Upstox "Unified Market Data Downloader & Quant Engine"** — a 13-page Streamlit dashboard to download Indian market data (Upstox/Zerodha/Dhan) and build/backtest/optimise/ML-mine no-code strategies.
 
 - **Original** single-file app: `D:\mbs\historydownloader\upstox_app.py` (3,207 lines) — **retained, never edited**.
-- **This (modular) app:** `D:\mbs\historydownloader\modular history\` → package `quantdesk/` (56 modules) + thin `app_main.py`.
-- **Build is complete and shipped through v6.1.** Not a work-in-progress refactor — it's a maintained product now.
+- **This (modular) app:** `D:\mbs\historydownloader\modular history\` → package `quantdesk/` (57 modules) + thin `app_main.py`.
+- **Build is complete and shipped through v7.0.** Not a work-in-progress refactor — it's a maintained product now.
 
 ## 2. Where it's published
 | Repo | Visibility | State | Purpose |
 |---|---|---|---|
-| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v6.1** (`f369458`) | main repo (v3 monolith at root + `modular history/` subfolder) |
-| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v6.1** (`5ca228c`) | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
+| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v7.0** | main repo (v3 monolith at root + `modular history/` subfolder) |
+| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v7.0** | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
 
-Tags: v3.0–v3.3 (monolith) → v4.0 (modular) → v5.0 (honest numbers) → v6.0 (audit/speed/multi-format) → **v6.1 (chart redesign)**. Only `main` exists on historytester (old sambhav/sabhav branches deleted).
+Tags: v3.0–v3.3 (monolith) → v4.0 (modular) → v5.0 (honest numbers) → v6.0 (audit/speed/multi-format) → v6.1 (chart redesign) → v7.0-alpha (v7 Phase A) → **v7.0 (Feature Maturity: A+B+C)**. Only `main` exists on historytester (old sambhav/sabhav branches deleted).
 
 ## 3. How to run & verify
 ```bat
@@ -50,7 +50,7 @@ Python 3.12 (uv venv) · streamlit 1.58 · plotly 6.8 · bokeh 3.9.1 (transitive
 - Indicator overlay-vs-panel is single-sourced in `config.INDICATOR_PLACEMENT`.
 - Default save format = Both. Local tools work without broker login.
 
-## 7. TO CONTINUE — ⭐ v7 Feature Maturity (Phase A DONE) → see [`ROADMAP_v7.md`](ROADMAP_v7.md)
+## 7. TO CONTINUE — ⭐ v7 Feature Maturity RELEASED (A+B+C, v7.0) → see [`ROADMAP_v7.md`](ROADMAP_v7.md)
 A multi-agent maturity audit confirmed the user's critique: **Backtester = usable, Optimizer = amateur,
 ML Pattern Finder = amateur/toy** (ML trained on raw absolute features that don't generalize across assets).
 
@@ -59,12 +59,36 @@ ML Pattern Finder = amateur/toy** (ML trained on raw absolute features that don'
   **Z-Score**, **Percentile Rank**, **Return (n-bar)**. Implemented as registry types (config placement/guides
   + `indicators.py` types/param-specs/helpers + `emit_indicator` + compiler namespace), so the **builder,
   ML finder, and plotter all get them** and they render in their own panels. Tests: `tests/test_features.py`.
-- **▶ Phase B — NEXT (M):** `ml/patterns.py` + `ml_finder.py` — default to normalized features; time-ordered
-  holdout/k-fold; per-rule Wilson lower-bound + Benjamini-Hochberg FDR + sample floor; per-instrument
-  normalization before bulk aggregation.
-- **Phase C (M-L):** optimizer validation — Deflated/Probabilistic Sharpe, parameter-stability heatmap
-  (grid already computes & discards `return_heatmap`), walk-forward (`backtest/wfo.py`), Monte-Carlo bands.
-- Release framing: **v7.0 = A+B**, **v7.1 = C**. Phase A is **not pushed yet** (ship with v7.0). Details in `ROADMAP_v7.md`.
+- **✅ Phase B — DONE (2026-06-28, local, unreleased; 56 tests green):** ML rigor in `ml/patterns.py` +
+  `ml_finder.py`. (1) ML finder **defaults to the normalized cross-asset features** (`partition_features`
+  in `indicators.py` + `CROSS_ASSET_COMPARABLE_TYPES`); warns + **per-instrument z-scores raw/absolute
+  features** before bulk concat (`batch.extract_trades` now tags each frame with `Source`). (2)
+  **Time-ordered holdout (70/30 default) or walk-forward k-fold** — rules mined on train, scored OOS.
+  (3) **Significance gate**: per-leaf sample-size floor (config `ML_SAMPLE_FLOOR=30`) → one-sided binomial
+  vs OOS baseline → **Benjamini-Hochberg FDR** (`ML_FDR_ALPHA=0.10`) → **Wilson lower-bound** must still
+  beat baseline. Only survivors → `rules`; the rest → `candidate_rules` (exploratory, with a reject reason).
+  XGBoost importance stays descriptive (full matrix, not gated). Config defaults in `config.py`. Tests:
+  `tests/test_ml_rigor.py` (11: Wilson/binomial/BH primitives, edge-recovered-and-passes, noise→none,
+  k-fold, per-instrument normalization, partition_features, API back-compat). Parity unaffected (legacy
+  `mine_patterns` positional call + old ML tests still green). Verified end-to-end on real RELIANCE trades
+  (defaulting, Source tagging, holdout, gate all correct) + AppTest renders ml_finder.
+- **✅ Phase C — DONE (2026-06-28, local, unreleased; 67 tests green):** optimizer validation.
+  (1) **Probabilistic & Deflated Sharpe** in `backtest/metrics.py` (`probabilistic_sharpe_ratio`,
+  `expected_max_sharpe`, `deflated_sharpe_ratio`, `sharpe_moments`, `validation_stats`) — DSR deflates
+  the winner's Sharpe for the number of configs tried (Bailey/LdP). (2) **Parameter-stability surface**:
+  `optimizer.optimize` now returns `(stats, best, meta)` with the grid `return_heatmap` (was discarded)
+  + Optuna trials/per-trial Sharpes; `engine.run_single` carries it as `info['opt_meta']`; rendered via
+  `charts.parameter_stability_heatmap` (1-D line / 2-D heatmap). (3) **Walk-forward** `backtest/wfo.py`
+  (anchored/rolling: re-optimize per IS window, trade frozen params OOS, stitch OOS equity, report WFE).
+  (4) **Monte-Carlo bootstrap** (`metrics.monte_carlo_bootstrap` + `charts.monte_carlo_fan`): resample
+  the trade sequence → P5/P50/P95 final-equity & worst-drawdown bands + fan chart. Optuna gains a
+  "Probabilistic Sharpe (PSR)" objective. Backtester page surfaces all four (validation panel + stability
+  expander + Monte-Carlo expander + Walk-Forward section). Tests: `tests/test_optimizer_validation.py`
+  (11). Verified end-to-end on real RELIANCE data (PSR/grid-heatmap/Optuna-DSR/MC-bands/WFE all correct —
+  the EMA-crossover's strong IS / weak OOS is correctly flagged by DSR 27% & WFE −1.2).
+- **Released as v7.0 (2026-06-28):** Phases A+B+C shipped together as the "Feature Maturity" milestone
+  (the earlier v7.0-alpha pre-release was Phase A only). Pushed to historytester `main` + tag `v7.0` +
+  GitHub release; sambhav synced to v7.0. Details in `ROADMAP_v7.md`.
 
 **Other backlog (full list in `progress.json` → `deferred_roadmap`):** trade analytics (MAE/MFE, R-multiple,
 Kelly) · Trade Replay · benchmark engine (alpha/beta vs Nifty) · partial exits / ATR stops / risk-% sizing /

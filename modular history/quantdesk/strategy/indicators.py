@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import ta
 
-from quantdesk.strategy.models import safe_name
+from quantdesk.strategy.models import classify_columns, safe_name
 
 # When True (default) ALMA / Linear-Reg-Slope / R-Squared emit fast vectorised forms.
 # When False they emit the original per-window rolling.apply forms. The two are proven
@@ -106,6 +106,39 @@ INDICATOR_PARAM_SPECS: Dict[str, list] = {
     "Percentile Rank": [("period", "int", 50, {"min": 2, "help": "rolling window; output 0..1"})],
     "Return (n-bar)": [("period", "int", 5, {"min": 1, "help": "x / x[t-period] - 1"})],
 }
+
+# Cross-asset-comparable indicator types (v7 Phase B): their value carries the SAME meaning
+# regardless of the instrument's absolute price/volume scale — the v7 normalized features plus
+# inherently bounded / unit-free oscillators. The ML Pattern Finder DEFAULTS to these (a learned
+# rule like "Z-Score < -1.5" generalizes across RELIANCE ~1,300 and NIFTY ~25,000, whereas
+# "EMA20 > 1330" does not). Anything NOT listed here is treated as raw/absolute: the ML finder
+# warns when it is selected and per-instrument z-scores it before bulk aggregation.
+CROSS_ASSET_COMPARABLE_TYPES = {
+    # v7 normalized features (Phase A)
+    "Ratio to SMA", "Distance from MA (ATR)", "MA Slope (ATR)",
+    "Z-Score", "Percentile Rank", "Return (n-bar)",
+    # inherently bounded / unit-free oscillators (already comparable across instruments)
+    "RSI", "ADX", "Stochastic Oscillator", "R-Squared", "Hurst Exponent",
+    "ATR-Normalized Angle", "Angle of Indicator", "HMM Regime",
+}
+
+
+def partition_features(selected: List[str], indicators: List[dict]):
+    """Split selected feature columns into ``(comparable, raw)`` by their indicator type.
+
+    OHLCV columns and price-scale / absolute indicators (SMA/EMA/MACD/ATR/…) are *raw*; the v7
+    normalized features and bounded oscillators are *comparable*. Used by the ML Pattern Finder to
+    (a) pick a sensible default selection, (b) warn when raw columns are chosen, and (c) decide
+    which columns to per-instrument-normalize before concatenating trades from many instruments.
+    """
+    col_type = {col: meta.get("type") for col, meta in classify_columns(indicators).items()}
+    comparable, raw = [], []
+    for f in selected:
+        if col_type.get(f) in CROSS_ASSET_COMPARABLE_TYPES:
+            comparable.append(f)
+        else:  # OHLCV (not in classify_columns) or a price-scale/absolute indicator
+            raw.append(f)
+    return comparable, raw
 
 
 def emit_indicator(ind: dict, src_map: Dict[str, str]) -> str:

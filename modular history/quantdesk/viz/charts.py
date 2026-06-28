@@ -165,6 +165,65 @@ def equity_overlay(curves: dict) -> go.Figure:
     return fig
 
 
+# --- v7 Phase C: optimizer-validation charts -------------------------------------------------
+def parameter_stability_heatmap(heatmap: pd.Series, metric: str = "Objective") -> go.Figure:
+    """Parameter-stability surface from a grid ``return_heatmap`` (MultiIndex Series of param->metric).
+
+    1 param -> a line (is the optimum a plateau or a lone spike?); 2 params -> a 2-D heatmap;
+    >2 params -> the top combinations as a bar. A robust optimum is a broad high region, not a peak.
+    """
+    names = list(heatmap.index.names)
+    if len(names) == 1:
+        s = heatmap.sort_index()
+        fig = go.Figure(go.Scatter(x=list(s.index), y=list(s.values), mode="lines+markers",
+                                   line=dict(color="#26a69a")))
+        fig.update_layout(xaxis_title=names[0], yaxis_title=metric)
+    elif len(names) == 2:
+        grid = heatmap.unstack(level=-1)
+        fig = go.Figure(go.Heatmap(
+            z=grid.values, x=[str(c) for c in grid.columns], y=[str(r) for r in grid.index],
+            colorscale="Viridis", colorbar=dict(title=metric),
+        ))
+        fig.update_layout(xaxis_title=names[1], yaxis_title=names[0])
+    else:
+        top = heatmap.sort_values(ascending=False).head(20)
+        fig = go.Figure(go.Bar(x=[str(i) for i in top.index], y=list(top.values),
+                               marker=dict(color="#26a69a")))
+        fig.update_layout(xaxis_title="Parameter combination", yaxis_title=metric)
+    fig.update_layout(title=f"Parameter stability ({metric})", template="plotly_dark",
+                      height=420, margin=dict(l=20, r=20, t=50, b=20))
+    return fig
+
+
+def monte_carlo_fan(bands: pd.DataFrame) -> go.Figure:
+    """Fan chart from a Monte-Carlo ``bands`` DataFrame (index=trade #, cols p5/p50/p95/realized)."""
+    x = list(bands.index)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=x, y=list(bands["p95"]), mode="lines", line=dict(width=0),
+                             name="P95", showlegend=False))
+    fig.add_trace(go.Scatter(x=x, y=list(bands["p5"]), mode="lines", line=dict(width=0),
+                             fill="tonexty", fillcolor="rgba(38,166,154,0.20)", name="P5–P95"))
+    fig.add_trace(go.Scatter(x=x, y=list(bands["p50"]), mode="lines",
+                             line=dict(color="#26a69a", dash="dash"), name="Median (P50)"))
+    if "realized" in bands.columns:
+        fig.add_trace(go.Scatter(x=x, y=list(bands["realized"]), mode="lines",
+                                 line=dict(color="#ffb74d", width=2), name="Realized"))
+    fig.update_layout(title="Monte-Carlo equity bands (trade-order bootstrap)",
+                      template="plotly_dark", height=420, margin=dict(l=20, r=20, t=50, b=20),
+                      xaxis_title="Trade #", yaxis_title="Equity (₹)", hovermode="x unified")
+    return fig
+
+
+def walk_forward_equity(stitched: pd.Series) -> go.Figure:
+    """Stitched out-of-sample equity curve from walk-forward analysis."""
+    fig = go.Figure(go.Scatter(x=list(stitched.index), y=list(stitched.values), mode="lines",
+                               line=dict(color="#26a69a"), name="Stitched OOS equity"))
+    fig.update_layout(title="Walk-forward — stitched out-of-sample equity",
+                      template="plotly_dark", height=400, margin=dict(l=20, r=20, t=50, b=20),
+                      yaxis_title="Equity (₹)", hovermode="x")
+    return fig
+
+
 # --- QuantStats (optional dependency, guarded per CLAUDE.md Section 11) -------
 try:
     import quantstats as _qs  # noqa: N813

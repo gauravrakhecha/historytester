@@ -85,6 +85,10 @@ def extract_trades(
 
     Used by the ML Pattern Finder to gather ``Entry_<feature>`` snapshots across datasets
     (multi-core), mirroring the monolith's parallel feature extraction (upstox_app.py:3064-3073).
+
+    Each returned frame carries a ``Source`` column (the originating file) so the ML finder can
+    z-score raw/absolute features per-instrument BEFORE concatenation (v7 Phase B) — otherwise
+    bulk aggregation would mix different-scale instruments into one matrix.
     """
     args_list = [(f, code, init_cash, total_commission, margin, feature_vars) for f in files]
     all_trades: List[pd.DataFrame] = []
@@ -93,7 +97,9 @@ def extract_trades(
         for idx, future in enumerate(as_completed(futures)):
             res = future.result()
             if "Trades" in res and not res["Trades"].empty:
-                all_trades.append(res["Trades"])
+                tdf = res["Trades"]
+                tdf["Source"] = res.get("File", "")
+                all_trades.append(tdf)
             if progress_cb:
                 progress_cb((idx + 1) / len(files), f"Extracting features {idx + 1}/{len(files)}")
     return all_trades
