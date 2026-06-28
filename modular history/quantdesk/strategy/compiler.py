@@ -19,7 +19,17 @@ import ta
 from backtesting import Strategy
 from backtesting.lib import crossover
 
-from quantdesk.strategy.indicators import alma_vec, lr_slope_vec, r2_vec
+from quantdesk.strategy.indicators import (
+    alma_vec,
+    dist_from_ma_atr_vec,
+    lr_slope_vec,
+    ma_slope_atr_vec,
+    pctile_rank_vec,
+    r2_vec,
+    ratio_to_sma_vec,
+    ret_n_vec,
+    zscore_vec,
+)
 
 _bytecode_cache: dict[int, object] = {}
 
@@ -29,6 +39,10 @@ def _namespace() -> dict:
         "Strategy": Strategy, "crossover": crossover, "ta": ta, "pd": pd, "np": np, "pta": pta,
         # vectorised indicator helpers referenced by generated code (speed, proven-equal)
         "alma_vec": alma_vec, "lr_slope_vec": lr_slope_vec, "r2_vec": r2_vec,
+        # v7 normalized / cross-asset-comparable feature helpers
+        "ratio_to_sma_vec": ratio_to_sma_vec, "dist_from_ma_atr_vec": dist_from_ma_atr_vec,
+        "ma_slope_atr_vec": ma_slope_atr_vec, "zscore_vec": zscore_vec,
+        "pctile_rank_vec": pctile_rank_vec, "ret_n_vec": ret_n_vec,
     }
 
 

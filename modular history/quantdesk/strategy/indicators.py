@@ -18,6 +18,7 @@ from typing import Dict, List
 
 import numpy as np
 import pandas as pd
+import ta
 
 from quantdesk.strategy.models import safe_name
 
@@ -35,6 +36,9 @@ INDICATOR_TYPES: List[str] = [
     "Supertrend", "Parabolic SAR", "ADX", "Stochastic Oscillator",
     "VWAP", "Keltner Channels", "Donchian Channels",
     "Hurst Exponent", "HMM Regime",
+    # v7 normalized / cross-asset-comparable features
+    "Ratio to SMA", "Distance from MA (ATR)", "MA Slope (ATR)",
+    "Z-Score", "Percentile Rank", "Return (n-bar)",
 ]
 
 # Parameter widgets per type (mirrors upstox_app.py:1666-1704).
@@ -87,6 +91,20 @@ INDICATOR_PARAM_SPECS: Dict[str, list] = {
         ("multiplier", "float", 2.0, {"min": 0.1}),
     ],
     "Donchian Channels": [("period", "int", 20, {"min": 1})],
+    # v7 normalized features (own-scale, comparable across instruments/timeframes)
+    "Ratio to SMA": [("period", "int", 20, {"min": 1, "help": "x / SMA(x, period). Pick Volume as source for 'volume vs its average'."})],
+    "Distance from MA (ATR)": [
+        ("period", "int", 20, {"min": 1, "help": "EMA length"}),
+        ("atr_period", "int", 14, {"min": 1, "help": "ATR length used to normalise"}),
+    ],
+    "MA Slope (ATR)": [
+        ("period", "int", 20, {"min": 1, "help": "EMA length"}),
+        ("lookback", "int", 5, {"min": 1, "help": "bars to measure slope over"}),
+        ("atr_period", "int", 14, {"min": 1, "help": "ATR length used to normalise"}),
+    ],
+    "Z-Score": [("period", "int", 50, {"min": 2, "help": "rolling window for mean/std"})],
+    "Percentile Rank": [("period", "int", 50, {"min": 2, "help": "rolling window; output 0..1"})],
+    "Return (n-bar)": [("period", "int", 5, {"min": 1, "help": "x / x[t-period] - 1"})],
 }
 
 
@@ -262,6 +280,19 @@ def emit_indicator(ind: dict, src_map: Dict[str, str]) -> str:
         code += "                    return np.nan\n"
         code += "            return pd.Series(series).rolling(int(window)).apply(_calc, raw=True).values\n"
         code += f"        self.{name} = self.I(get_hmm_{name}, {src}, self.{name}_period, self.{name}_components)\n"
+    # --- v7 normalized features (vectorised helpers injected into the compile namespace) ---
+    elif t == "Ratio to SMA":
+        code += f"        self.{name} = self.I(ratio_to_sma_vec, {src}, self.{name}_period)\n"
+    elif t == "Distance from MA (ATR)":
+        code += f"        self.{name} = self.I(dist_from_ma_atr_vec, {src}, self.data.High, self.data.Low, self.data.Close, self.{name}_period, self.{name}_atr_period)\n"
+    elif t == "MA Slope (ATR)":
+        code += f"        self.{name} = self.I(ma_slope_atr_vec, {src}, self.data.High, self.data.Low, self.data.Close, self.{name}_period, self.{name}_lookback, self.{name}_atr_period)\n"
+    elif t == "Z-Score":
+        code += f"        self.{name} = self.I(zscore_vec, {src}, self.{name}_period)\n"
+    elif t == "Percentile Rank":
+        code += f"        self.{name} = self.I(pctile_rank_vec, {src}, self.{name}_period)\n"
+    elif t == "Return (n-bar)":
+        code += f"        self.{name} = self.I(ret_n_vec, {src}, self.{name}_period)\n"
     return code
 
 
@@ -316,3 +347,57 @@ def alma_vec(series, window: int, offset: float = 0.85, sigma: float = 6) -> np.
         conv = np.convolve(s, w[::-1], mode="valid")
         out[window - 1:] = conv
     return out
+
+
+# --- v7 normalized / cross-asset-comparable feature helpers ----------------------------------
+# All return numpy arrays aligned to the input. They are injected into the compile namespace
+# (see compiler._namespace) and called via self.I in generated strategy code. Designed so a
+# learned rule (or a builder comparison) carries the SAME meaning on RELIANCE, NIFTY, crypto, etc.
+def _ema(series, n):
+    return ta.trend.ema_indicator(pd.Series(series, dtype="float64"), int(n))
+
+
+def _atr(high, low, close, m):
+    return ta.volatility.average_true_range(
+        pd.Series(high, dtype="float64"), pd.Series(low, dtype="float64"),
+        pd.Series(close, dtype="float64"), int(m),
+    )
+
+
+def ratio_to_sma_vec(series, n):
+    """x / SMA(x, n). Volume source -> 'volume vs its 20-bar average'; >1 means above average."""
+    s = pd.Series(series, dtype="float64")
+    sma = ta.trend.sma_indicator(s, int(n))
+    return (s / sma.replace(0, np.nan)).values
+
+
+def dist_from_ma_atr_vec(series, high, low, close, n, m):
+    """(x - EMA(x, n)) / ATR(m): how stretched from the mean, in volatility units (unit-free)."""
+    ema = _ema(series, n)
+    atr = _atr(high, low, close, m)
+    return ((pd.Series(series, dtype="float64") - ema) / atr.replace(0, np.nan)).values
+
+
+def ma_slope_atr_vec(series, high, low, close, n, k, m):
+    """(EMA(x,n) - EMA(x,n)[t-k]) / (k * ATR(m)): trend slope per bar in ATR units."""
+    ema = _ema(series, n)
+    atr = _atr(high, low, close, m)
+    return ((ema - ema.shift(int(k))) / (int(k) * atr.replace(0, np.nan))).values
+
+
+def zscore_vec(series, N):
+    """(x - rolling_mean_N) / rolling_std_N: standardized deviation, comparable across series."""
+    s = pd.Series(series, dtype="float64")
+    r = s.rolling(int(N))
+    return ((s - r.mean()) / r.std(ddof=0).replace(0, np.nan)).values
+
+
+def pctile_rank_vec(series, N):
+    """Rolling percentile rank of the current bar within the last N bars, in [0, 1]."""
+    return pd.Series(series, dtype="float64").rolling(int(N)).rank(pct=True).values
+
+
+def ret_n_vec(series, n):
+    """n-bar return: x / x[t-n] - 1 (scale-free)."""
+    s = pd.Series(series, dtype="float64")
+    return (s / s.shift(int(n)) - 1.0).values

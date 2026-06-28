@@ -1,5 +1,23 @@
 # Changelog
 
+## v7.0-alpha — Feature Maturity, Phase A (2026-06-27, pre-release / WIP)
+
+First slice of the v7 "Feature Maturity" line (see `modular history/ROADMAP_v7.md`). A multi-agent
+maturity audit confirmed the ML Pattern Finder trained on **raw absolute features** that don't
+generalize across instruments/asset-classes. **Phase A** adds a **normalized, cross-asset-comparable
+feature library** as new no-code indicator types, so the builder, ML finder and plotter all gain
+signals that mean the same thing on RELIANCE, NIFTY or any instrument/timeframe:
+
+- **Ratio to SMA** (`x / SMA(x,n)` — pick Volume for "volume vs its average"), **Distance from MA (ATR)**,
+  **MA Slope (ATR)**, **Z-Score**, **Percentile Rank**, **Return (n-bar)** — all rendered in their own panels.
+- Implemented via the registry (config placement/guides + indicators types/specs/vectorised helpers +
+  codegen + compiler namespace); cross-asset comparability and codegen→compile→backtest covered by
+  `tests/test_features.py`. Full suite **45/45** green; parity unaffected.
+
+Still pending for the full **v7.0**: Phase B (ML holdout + Wilson/BH-FDR significance gate) and
+Phase C (optimizer validation: Deflated Sharpe, parameter-stability heatmap, walk-forward, Monte-Carlo).
+This pre-release is a safety-net snapshot of work in progress.
+
 ## v6.1 — Chart Redesign (2026-06-27)
 
 The Plotly backtest chart was "messy" because a type-blind loop dumped **every** indicator —

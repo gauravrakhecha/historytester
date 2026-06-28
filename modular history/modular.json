@@ -6,7 +6,7 @@
   "target_root": "D:/mbs/historydownloader/modular history",
   "verification_data": "D:/simpleton/historydownloader/data",
   "engine_decision": "keep backtesting.py",
-  "updated_at": "2026-06-27 10:28:15",
+  "updated_at": "2026-06-27 22:13:44",
   "status_legend": [
     "pending",
     "in_progress",
@@ -100,8 +100,8 @@
       "source_lines": "41-64, 286-393",
       "purpose": "env/paths/constants/index presets/indicator-output suffix map",
       "verified": true,
-      "notes": "smoke-tested OK",
-      "updated_at": "2026-06-25 13:58:20"
+      "notes": "v7-A: 6 normalized indicator placements+guides",
+      "updated_at": "2026-06-27 22:13:43"
     },
     "quantdesk/core/db.py": {
       "status": "verified",
@@ -267,8 +267,8 @@
         "tests/test_indicators.py"
       ],
       "verified": true,
-      "notes": "registry + param specs + vectorized ALMA/LRSlope/R2 (proven equal)",
-      "updated_at": "2026-06-25 16:03:36"
+      "notes": "v7-A: 6 normalized feature types + helpers",
+      "updated_at": "2026-06-27 22:13:43"
     },
     "quantdesk/strategy/codegen.py": {
       "status": "verified",
@@ -288,8 +288,8 @@
       "source_lines": "716-720",
       "purpose": "exec code -> Strategy class; cached by code-hash",
       "verified": true,
-      "notes": "bytecode-cached fresh-class compile; helper injection",
-      "updated_at": "2026-06-25 16:03:37"
+      "notes": "v7-A: inject normalized helpers",
+      "updated_at": "2026-06-27 22:13:43"
     },
     "quantdesk/strategy/presets.py": {
       "status": "verified",
@@ -629,6 +629,12 @@
       "verified": true,
       "notes": "3 chart-layout tests",
       "updated_at": "2026-06-27 10:28:15"
+    },
+    "tests/test_features.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "v7-A: 4 feature tests",
+      "updated_at": "2026-06-27 22:13:44"
     }
   },
   "feature_parity_checklist": {
@@ -1501,6 +1507,46 @@
       "ts": "2026-06-27 10:28:15",
       "agent": "orchestrator",
       "event": "file:tests/test_chart_layout.py -> verified (3 chart-layout tests)"
+    },
+    {
+      "ts": "2026-06-27 10:41:40",
+      "agent": "release",
+      "event": "v6.1 pushed to historytester (chart redesign + step6 native Bokeh pro chart). 41 tests green. sambhav private repo NOT yet synced to v6.1."
+    },
+    {
+      "ts": "2026-06-27 11:09:54",
+      "agent": "status",
+      "event": "Dropped TradingView Lightweight Charts (uninstalled, harness removed, launch.json reset). Wrote progress.json + STATUS.md as detailed resume docs at modular history root (current=v6.1; env/repos/decisions/gotchas/deferred-roadmap captured)."
+    },
+    {
+      "ts": "2026-06-27 22:02:13",
+      "agent": "roadmap",
+      "event": "v7 Feature Maturity plan recorded (ROADMAP_v7.md + progress.json.next_phase + STATUS.md). Audit verdict: backtester usable, optimizer+ML amateur. Plan: Phase A normalized feature library (new indicator types: volume/SMA, EMA-slope-ATR, dist-from-MA-ATR, zscore, pctile, n-bar return), Phase B ML holdout+Wilson/BH-FDR significance, Phase C optimizer DSR+stability heatmap+WFO+MC. v7.0=A+B, v7.1=C. NOT started."
+    },
+    {
+      "ts": "2026-06-27 22:13:43",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/config.py -> verified (v7-A: 6 normalized indicator placements+guides)"
+    },
+    {
+      "ts": "2026-06-27 22:13:43",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/indicators.py -> verified (v7-A: 6 normalized feature types + helpers)"
+    },
+    {
+      "ts": "2026-06-27 22:13:43",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/compiler.py -> verified (v7-A: inject normalized helpers)"
+    },
+    {
+      "ts": "2026-06-27 22:13:44",
+      "agent": "orchestrator",
+      "event": "file:tests/test_features.py -> verified (v7-A: 4 feature tests)"
+    },
+    {
+      "ts": "2026-06-27 22:13:44",
+      "agent": "roadmap",
+      "event": "v7 Phase A DONE: normalized feature library (Ratio to SMA, Distance/Slope in ATR, Z-Score, Percentile Rank, n-bar Return) as registry indicator types -> builder+ML+plotter all comparable across assets. 45/45 tests, all pages render. Local/unreleased. NEXT=Phase B (ML holdout+significance)."
     }
   ]
 }

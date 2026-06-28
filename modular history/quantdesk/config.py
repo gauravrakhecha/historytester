@@ -115,6 +115,9 @@ INDICATOR_PLACEMENT = {
     "ATR": "panel", "ATR-Normalized Angle": "panel", "Angle of Indicator": "panel",
     "Hurst Exponent": "panel", "R-Squared": "panel", "HMM Regime": "panel",
     "Linear Regression Slope": "panel",
+    # v7 normalized / cross-asset-comparable features (all own-scale -> panels)
+    "Ratio to SMA": "panel", "Distance from MA (ATR)": "panel", "MA Slope (ATR)": "panel",
+    "Z-Score": "panel", "Percentile Rank": "panel", "Return (n-bar)": "panel",
 }
 
 # Reference guide-lines drawn inside an indicator's panel (y-values).
@@ -122,4 +125,7 @@ INDICATOR_PANEL_GUIDES = {
     "RSI": [30, 70], "Stochastic Oscillator": [20, 80], "ADX": [25], "MACD": [0],
     "ATR-Normalized Angle": [0], "Angle of Indicator": [0], "Linear Regression Slope": [0],
     "Hurst Exponent": [0.5],
+    # v7 normalized features
+    "Ratio to SMA": [1.0], "Distance from MA (ATR)": [0], "MA Slope (ATR)": [0],
+    "Z-Score": [-2, 0, 2], "Percentile Rank": [0.2, 0.8], "Return (n-bar)": [0],
 }
