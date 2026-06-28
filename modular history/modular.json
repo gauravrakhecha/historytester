@@ -6,7 +6,7 @@
   "target_root": "D:/mbs/historydownloader/modular history",
   "verification_data": "D:/simpleton/historydownloader/data",
   "engine_decision": "keep backtesting.py",
-  "updated_at": "2026-06-28 17:46:31",
+  "updated_at": "2026-06-28 18:49:45",
   "status_legend": [
     "pending",
     "in_progress",
@@ -294,8 +294,8 @@
       "source_lines": "716-720",
       "purpose": "exec code -> Strategy class; cached by code-hash",
       "verified": true,
-      "notes": "v7-A: inject normalized helpers",
-      "updated_at": "2026-06-27 22:13:43"
+      "notes": "perf: lazy-import backtesting+pandas_ta inside _namespace (page-switch lag fix)",
+      "updated_at": "2026-06-28 18:49:43"
     },
     "quantdesk/strategy/presets.py": {
       "status": "verified",
@@ -324,8 +324,8 @@
         "tests/test_parity.py"
       ],
       "verified": true,
-      "notes": "v7-C: run_single carries info['opt_meta'] (heatmap/trials/trial_sharpes)",
-      "updated_at": "2026-06-28 17:46:29"
+      "notes": "perf: lazy-import backtesting inside make_backtest",
+      "updated_at": "2026-06-28 18:49:44"
     },
     "quantdesk/backtest/optimizer.py": {
       "status": "verified",
@@ -378,8 +378,8 @@
       "source_lines": "70-121",
       "purpose": "render_plotly_backtest + shared chart helpers",
       "verified": true,
-      "notes": "v7-C: parameter_stability_heatmap + monte_carlo_fan + walk_forward_equity",
-      "updated_at": "2026-06-28 17:46:30"
+      "notes": "perf: lazy-load quantstats via _qs_module()/quantstats_available() (was ~4.9s eager import)",
+      "updated_at": "2026-06-28 18:49:44"
     },
     "quantdesk/ui/components.py": {
       "status": "verified",
@@ -477,8 +477,8 @@
       "source_lines": "2268-2378",
       "purpose": "Strategy & Indicator Plotter page",
       "verified": true,
-      "notes": "render(ctx) ported; AppTest renders OK",
-      "updated_at": "2026-06-25 16:37:08"
+      "notes": "perf: lazy-import backtesting in the Generate-Signal-Sheet handler",
+      "updated_at": "2026-06-28 18:49:44"
     },
     "quantdesk/ui/pages/backtester.py": {
       "status": "verified",
@@ -486,8 +486,8 @@
       "source_lines": "2380-2907",
       "purpose": "Backtester & Optimizer page (single + folder batch)",
       "verified": true,
-      "notes": "v7-C: validation panel (PSR/DSR + parameter stability), Monte-Carlo expander, Walk-Forward section",
-      "updated_at": "2026-06-28 17:46:29"
+      "notes": "perf: charts.quantstats_available() (lazy quantstats)",
+      "updated_at": "2026-06-28 18:49:44"
     },
     "quantdesk/ui/pages/results.py": {
       "status": "verified",
@@ -1656,6 +1656,36 @@
       "ts": "2026-06-28 17:46:31",
       "agent": "orchestrator",
       "event": "v7 A+B+C complete (67 tests green); publishing v7.0"
+    },
+    {
+      "ts": "2026-06-28 18:49:43",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/compiler.py -> verified (perf: lazy-import backtesting+pandas_ta inside _namespace (page-switch lag fix))"
+    },
+    {
+      "ts": "2026-06-28 18:49:44",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/viz/charts.py -> verified (perf: lazy-load quantstats via _qs_module()/quantstats_available() (was ~4.9s eager import))"
+    },
+    {
+      "ts": "2026-06-28 18:49:44",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/backtest/engine.py -> verified (perf: lazy-import backtesting inside make_backtest)"
+    },
+    {
+      "ts": "2026-06-28 18:49:44",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/plotter.py -> verified (perf: lazy-import backtesting in the Generate-Signal-Sheet handler)"
+    },
+    {
+      "ts": "2026-06-28 18:49:44",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/backtester.py -> verified (perf: charts.quantstats_available() (lazy quantstats))"
+    },
+    {
+      "ts": "2026-06-28 18:49:45",
+      "agent": "orchestrator",
+      "event": "perf: page-switch lag fix (lazy heavy imports) — page import 6.08s->0.91s; 67 tests green; LOCAL/unpushed (v7.0.1 candidate)"
     }
   ]
 }

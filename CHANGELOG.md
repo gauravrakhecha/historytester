@@ -1,5 +1,20 @@
 # Changelog
 
+## v7.0.1 — Startup/navigation performance (2026-06-28)
+
+Patch release. Opening the **Strategy & Indicator Plotter** or **Backtester** for the first time in a
+session froze for ~6s because heavy libraries were imported at module top and therefore loaded during
+the page switch: `backtesting` (+ `bokeh`, ~2.3s) and `pandas_ta` (~1.8s) via `strategy/compiler.py`,
+and `quantstats` (+ matplotlib, ~4.9s) via `viz/charts.py`. All three are now **lazy-loaded** — they
+import on first compile/run/tearsheet (under the existing spinners), not on navigation.
+
+- `strategy/compiler.py`: `backtesting` + `pandas_ta` imported inside `_namespace()`.
+- `viz/charts.py`: `quantstats` loaded on demand via `_qs_module()` / `quantstats_available()`.
+- `backtest/engine.py` + `ui/pages/plotter.py`: `backtesting` imported at point of use.
+
+Result: page-module import **6.08s → 0.91s**; no behavior change. 67 tests green; AppTest + real-data
+drives verified.
+
 ## v7.0 — Feature Maturity (2026-06-28)
 
 The v7 "Feature Maturity" milestone (see `modular history/ROADMAP_v7.md`), driven by a multi-agent

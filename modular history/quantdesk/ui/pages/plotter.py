@@ -6,7 +6,6 @@ import traceback
 
 import pandas as pd
 import streamlit as st
-from backtesting import Backtest
 
 from quantdesk.strategy.compiler import compile_strategy
 from quantdesk.strategy.models import OHLCV, safe_name, selectable_columns
@@ -42,6 +41,11 @@ def render(ctx):
             return
         with st.spinner("Calculating indicators and signals..."):
             try:
+                # Lazy import: `backtesting` pulls in bokeh (~2.5s cold). Importing it here, under the
+                # spinner, keeps switching TO this page instant — the cost lands on the click, where
+                # the user already expects work, instead of freezing the page transition.
+                from backtesting import Backtest
+
                 df = pd.read_parquet(selected_file) if selected_file.endswith(".parquet") else pd.read_csv(selected_file)
                 if "Timestamp" in df.columns:
                     df["Timestamp"] = pd.to_datetime(df["Timestamp"])

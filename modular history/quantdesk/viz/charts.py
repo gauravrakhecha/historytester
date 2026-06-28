@@ -224,27 +224,43 @@ def walk_forward_equity(stitched: pd.Series) -> go.Figure:
     return fig
 
 
-# --- QuantStats (optional dependency, guarded per CLAUDE.md Section 11) -------
-try:
-    import quantstats as _qs  # noqa: N813
-    QUANTSTATS_AVAILABLE = True
-except Exception:  # noqa: BLE001
-    QUANTSTATS_AVAILABLE = False
+# --- QuantStats (optional + HEAVY: pulls matplotlib, ~5s cold). Lazy-loaded per CLAUDE.md §11 so
+# importing this module — and the pages that import it (Plotter/Backtester/Results) — stays fast;
+# quantstats only loads when a tearsheet/metrics block is actually requested, under a spinner. -----
+_QS = None  # None = not tried; False = unavailable; module object = loaded
+
+
+def _qs_module():
+    """Lazily import quantstats once. Returns the module, or None if unavailable."""
+    global _QS
+    if _QS is None:
+        try:
+            import quantstats as _q  # noqa: N813
+            _QS = _q
+        except Exception:  # noqa: BLE001
+            _QS = False
+    return _QS or None
+
+
+def quantstats_available() -> bool:
+    """True if quantstats can be imported (loads it on first call)."""
+    return _qs_module() is not None
 
 
 def quantstats_tearsheet_html(returns: pd.Series, benchmark: pd.Series | None = None) -> str | None:
     """Full QuantStats HTML tearsheet for a (daily) returns series, or None if unavailable/empty."""
-    if not QUANTSTATS_AVAILABLE or returns is None or len(returns) < 2:
+    qs = _qs_module()
+    if qs is None or returns is None or len(returns) < 2:
         return None
     import io
 
     buf = io.StringIO()
     try:
-        _qs.reports.html(returns, benchmark=benchmark, output=buf, title="Strategy Tearsheet")
+        qs.reports.html(returns, benchmark=benchmark, output=buf, title="Strategy Tearsheet")
         return buf.getvalue()
     except Exception:
         try:
-            _qs.reports.html(returns, output=buf, title="Strategy Tearsheet")
+            qs.reports.html(returns, output=buf, title="Strategy Tearsheet")
             return buf.getvalue()
         except Exception:
             return None
@@ -252,9 +268,10 @@ def quantstats_tearsheet_html(returns: pd.Series, benchmark: pd.Series | None = 
 
 def quantstats_metrics(returns: pd.Series) -> dict:
     """A curated risk block QuantStats can produce from a daily returns series."""
-    if not QUANTSTATS_AVAILABLE or returns is None or len(returns) < 2:
+    qs = _qs_module()
+    if qs is None or returns is None or len(returns) < 2:
         return {}
-    s = _qs.stats
+    s = qs.stats
     out = {}
     try:
         out["VaR (95%)"] = round(float(s.value_at_risk(returns)) * 100, 2)

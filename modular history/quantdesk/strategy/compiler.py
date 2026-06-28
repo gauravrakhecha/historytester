@@ -14,10 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pandas_ta as pta
 import ta
-from backtesting import Strategy
-from backtesting.lib import crossover
 
 from quantdesk.strategy.indicators import (
     alma_vec,
@@ -35,6 +32,13 @@ _bytecode_cache: dict[int, object] = {}
 
 
 def _namespace() -> dict:
+    # Heavy imports kept OUT of module scope so importing this module — and the pages that import it
+    # (e.g. the Plotter) — stays instant. `backtesting` (~2.3s, pulls bokeh) and `pandas_ta` (~1.8s)
+    # are only needed at compile time, which always runs under a caller-side spinner.
+    import pandas_ta as pta
+    from backtesting import Strategy
+    from backtesting.lib import crossover
+
     return {
         "Strategy": Strategy, "crossover": crossover, "ta": ta, "pd": pd, "np": np, "pta": pta,
         # vectorised indicator helpers referenced by generated code (speed, proven-equal)
@@ -57,6 +61,7 @@ def compile_strategy(code: str):
         _bytecode_cache[key] = code_obj
 
     ns = _namespace()
+    Strategy = ns["Strategy"]  # resolved via the lazy namespace (no module-level backtesting import)
     exec(code_obj, ns)  # noqa: S102 — trusted, self-generated no-code strategy source
     for obj in ns.values():
         if isinstance(obj, type) and issubclass(obj, Strategy) and obj is not Strategy:

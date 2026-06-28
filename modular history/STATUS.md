@@ -1,6 +1,6 @@
 # CURRENT STATUS — QuantDesk (modular) — resume doc
 
-**Last updated:** 2026-06-28 · **Current version:** **v7.0** · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
+**Last updated:** 2026-06-28 · **Current version:** **v7.0.1** · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
 
 > **Read this first after a context reset.** It captures everything needed to continue without re-deriving state.
 
@@ -16,10 +16,10 @@ A modular rebuild of an independent app: the **Upstox "Unified Market Data Downl
 ## 2. Where it's published
 | Repo | Visibility | State | Purpose |
 |---|---|---|---|
-| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v7.0** | main repo (v3 monolith at root + `modular history/` subfolder) |
-| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v7.0** | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
+| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v7.0.1** | main repo (v3 monolith at root + `modular history/` subfolder) |
+| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v7.0.1** | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
 
-Tags: v3.0–v3.3 (monolith) → v4.0 (modular) → v5.0 (honest numbers) → v6.0 (audit/speed/multi-format) → v6.1 (chart redesign) → v7.0-alpha (v7 Phase A) → **v7.0 (Feature Maturity: A+B+C)**. Only `main` exists on historytester (old sambhav/sabhav branches deleted).
+Tags: v3.0–v3.3 (monolith) → v4.0 (modular) → v5.0 (honest numbers) → v6.0 (audit/speed/multi-format) → v6.1 (chart redesign) → v7.0-alpha (v7 Phase A) → v7.0 (Feature Maturity: A+B+C) → **v7.0.1 (perf: page-switch lag fix)**. Only `main` exists on historytester (old sambhav/sabhav branches deleted).
 
 ## 3. How to run & verify
 ```bat
@@ -89,6 +89,14 @@ ML Pattern Finder = amateur/toy** (ML trained on raw absolute features that don'
 - **Released as v7.0 (2026-06-28):** Phases A+B+C shipped together as the "Feature Maturity" milestone
   (the earlier v7.0-alpha pre-release was Phase A only). Pushed to historytester `main` + tag `v7.0` +
   GitHub release; sambhav synced to v7.0. Details in `ROADMAP_v7.md`.
+- **⏩ Perf fix — page-switch lag (SHIPPED as v7.0.1, 2026-06-28):** opening the Plotter/Backtester
+  was freezing ~6s on first visit because `compiler.py` (→ `backtesting`+`bokeh` ~2.3s, `pandas_ta`
+  ~1.8s) and `viz/charts.py` (→ `quantstats` ~4.9s) imported those heavy libs at MODULE TOP, so the
+  page-module import paid for them during the nav switch. Made all three **lazy** (compiler imports
+  inside `_namespace()`; charts loads quantstats on demand via `_qs_module()`/`quantstats_available()`;
+  `engine.make_backtest` + plotter button-handler import `backtesting` on use). Page import 6.08s→**0.91s**;
+  heavy libs now load on first compile/run/tearsheet, under existing spinners. 67 tests green; AppTest OK.
+  Pushed to historytester `main` + tag `v7.0.1` + GitHub release; sambhav synced.
 
 **Other backlog (full list in `progress.json` → `deferred_roadmap`):** trade analytics (MAE/MFE, R-multiple,
 Kelly) · Trade Replay · benchmark engine (alpha/beta vs Nifty) · partial exits / ATR stops / risk-% sizing /

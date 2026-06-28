@@ -1,8 +1,8 @@
 {
   "project": "QuantDesk — Unified Market Data Downloader & Quant Engine (modular edition)",
   "as_of": "2026-06-28",
-  "current_version": "v7.0",
-  "one_line_status": "Modular rebuild SHIPPED through v7.0 (on GitHub). v7 'Feature Maturity' = Phases A (normalized cross-asset feature library) + B (ML rigor: holdout/k-fold + Wilson/binomial/BH-FDR gate + per-instrument normalization) + C (optimizer validation: Probabilistic/Deflated Sharpe, parameter-stability heatmap, walk-forward backtest/wfo.py, Monte-Carlo bootstrap bands) — ALL DONE & verified (67 tests green; AppTest + real-data drives) and RELEASED together as v7.0 (the earlier v7.0-alpha was Phase A only). historytester(main, tag v7.0) + private sambhav synced to v7.0. Original monolith retained. NEXT = remaining deferred_roadmap items (trade analytics MAE/MFE/R-multiple/Kelly, Trade Replay, benchmark engine alpha/beta vs Nifty).",
+  "current_version": "v7.0.1",
+  "one_line_status": "Modular rebuild SHIPPED through v7.0.1 (on GitHub). v7 'Feature Maturity' = Phases A (normalized cross-asset feature library) + B (ML rigor: holdout/k-fold + Wilson/binomial/BH-FDR gate + per-instrument normalization) + C (optimizer validation: Probabilistic/Deflated Sharpe, parameter-stability heatmap, walk-forward backtest/wfo.py, Monte-Carlo bootstrap bands) — RELEASED as v7.0. v7.0.1 = perf patch: lazy-load heavy imports (backtesting/bokeh, pandas_ta, quantstats) so opening the Plotter/Backtester no longer freezes ~6s on first visit (page import 6.08s->0.91s; loads now happen on first compile/run/tearsheet under spinners). 67 tests green; AppTest + real-data drives. historytester(main, tag v7.0.1) + private sambhav synced to v7.0.1. Original monolith retained. NEXT = remaining deferred_roadmap items (trade analytics MAE/MFE/R-multiple/Kelly, Trade Replay, benchmark engine alpha/beta vs Nifty).",
 
   "next_phase": {
     "id": "v7_feature_maturity",
@@ -40,17 +40,17 @@
       "url": "https://github.com/gauravrakhecha/historytester",
       "visibility": "PRIVATE",
       "branches": ["main"],
-      "latest_tag": "v7.0",
-      "latest_commit": "see tag v7.0",
-      "layout": "root = v3 single-file app (upstox_app.py, LICENSE, README, CHANGELOG, User Guide PDF, bats) + 'modular history/' subfolder = the v4-v7.0 modular app",
-      "tags": ["v3.0","v3.1","v3.2","v3.3","v4.0","v5.0","v6.0","v6.1","v7.0-alpha","v7.0"],
+      "latest_tag": "v7.0.1",
+      "latest_commit": "see tag v7.0.1",
+      "layout": "root = v3 single-file app (upstox_app.py, LICENSE, README, CHANGELOG, User Guide PDF, bats) + 'modular history/' subfolder = the v4-v7.0.1 modular app",
+      "tags": ["v3.0","v3.1","v3.2","v3.3","v4.0","v5.0","v6.0","v6.1","v7.0-alpha","v7.0","v7.0.1"],
       "notes": "Old sambhav/sabhav branches are now deleted; only main remains."
     },
     "sambhav": {
       "url": "https://github.com/gauravrakhecha/sambhav",
       "visibility": "PRIVATE",
       "purpose": "Dedicated collaborator workspace (GitHub has no per-branch read access, so a separate repo gives true isolation). Invite collaborator here only.",
-      "synced_to": "v7.0",
+      "synced_to": "v7.0.1",
       "sync_procedure": "clone historytester main (depth 1) -> clone sambhav -> replace sambhav working tree (keep .git) with historytester content (tar excluding .git) -> commit 'Sync to vX' -> push. Always re-run secret scan."
     }
   },

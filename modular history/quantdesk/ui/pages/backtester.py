@@ -246,7 +246,7 @@ def _render_charges_panel(stats, trades, segment: str, init_cash: float, total_c
 def _render_quantstats(stats) -> None:
     """QuantStats tearsheet + curated risk block behind an Advanced expander (#4)."""
     with st.expander("📑 Advanced — QuantStats tearsheet & risk analytics", expanded=False):
-        if not charts.QUANTSTATS_AVAILABLE:
+        if not charts.quantstats_available():
             st.info("QuantStats is not installed. `pip install quantstats` to enable the tearsheet.")
             return
         rets = metrics.equity_returns(stats, resample_daily=True)

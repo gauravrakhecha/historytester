@@ -12,7 +12,6 @@ import os
 from typing import Callable, Optional
 
 import pandas as pd
-from backtesting import Backtest
 
 from quantdesk.backtest import optimizer as _opt
 from quantdesk.config import QUALITY_BLOCK_THRESHOLD
@@ -31,8 +30,13 @@ def _enforce_quality(df: pd.DataFrame) -> None:
         )
 
 
-def make_backtest(df: pd.DataFrame, code: str, init_cash: float, total_commission: float, margin: float) -> Backtest:
+def make_backtest(df: pd.DataFrame, code: str, init_cash: float, total_commission: float, margin: float) -> "Backtest":
     """Compile ``code`` and build a Backtest (commission already includes slippage)."""
+    # Lazy import: `backtesting` (and its bokeh dependency) is a ~2.5s cold import. Deferring it to
+    # here keeps importing this module — and therefore opening the Backtester page — instant; the
+    # cost is paid once, on the first actual run, under the page's "Running…" spinner.
+    from backtesting import Backtest
+
     cls = compile_strategy(code)
     return Backtest(df, cls, cash=init_cash, commission=total_commission, margin=margin, finalize_trades=True)
 
