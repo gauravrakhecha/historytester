@@ -46,6 +46,8 @@ def walk_forward(
     oos_frac: float = 0.4,
     anchored: bool = True,
     n_trials: int = 30,
+    segment: Optional[str] = None,
+    slippage: float = 0.0,
     progress_cb: Optional[Callable[[float, str], None]] = None,
 ) -> dict:
     """Run anchored/rolling walk-forward optimisation. Returns a result dict.
@@ -85,10 +87,10 @@ def walk_forward(
         if len(is_df) < 50 or len(oos_df) < 30:
             continue
         try:
-            bt_is = make_backtest(is_df, code, init_cash, total_commission, margin)
+            bt_is = make_backtest(is_df, code, init_cash, total_commission, margin, segment=segment, slippage=slippage)
             _, best, _meta = _opt.optimize(bt_is, mode, opt_kwargs, maximize, n_trials, None)
-            is_stats = make_backtest(is_df, code, init_cash, total_commission, margin).run(**best)
-            oos_stats = make_backtest(oos_df, code, init_cash, total_commission, margin).run(**best)
+            is_stats = make_backtest(is_df, code, init_cash, total_commission, margin, segment=segment, slippage=slippage).run(**best)
+            oos_stats = make_backtest(oos_df, code, init_cash, total_commission, margin, segment=segment, slippage=slippage).run(**best)
         except Exception as e:  # noqa: BLE001 - record per-window failure, keep going
             rows.append({"Window": i + 1, "Error": str(e)[:120]})
             continue

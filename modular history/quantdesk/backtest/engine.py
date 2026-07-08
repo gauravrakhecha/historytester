@@ -30,14 +30,25 @@ def _enforce_quality(df: pd.DataFrame) -> None:
         )
 
 
-def make_backtest(df: pd.DataFrame, code: str, init_cash: float, total_commission: float, margin: float) -> "Backtest":
-    """Compile ``code`` and build a Backtest (commission already includes slippage)."""
+def make_backtest(df: pd.DataFrame, code: str, init_cash: float, total_commission: float, margin: float,
+                  *, segment: Optional[str] = None, slippage: float = 0.0) -> "Backtest":
+    """Compile ``code`` and build a Backtest.
+
+    v7.1 charge-accurate mode: when ``segment`` is given, the REAL India per-leg statutory charges are
+    applied INSIDE the simulation (``costs.india.make_fee_model``) and ``slippage`` becomes the bid-ask
+    ``spread`` — so Return/Sharpe/DSR/WFO/MC and the optimizer objective are all net of real charges.
+    Without ``segment`` the legacy flat ``total_commission`` proxy is used (back-compat for callers/tests).
+    """
     # Lazy import: `backtesting` (and its bokeh dependency) is a ~2.5s cold import. Deferring it to
     # here keeps importing this module — and therefore opening the Backtester page — instant; the
     # cost is paid once, on the first actual run, under the page's "Running…" spinner.
     from backtesting import Backtest
 
     cls = compile_strategy(code)
+    if segment:
+        from quantdesk.costs.india import make_fee_model
+        return Backtest(df, cls, cash=init_cash, commission=make_fee_model(segment),
+                        spread=float(slippage or 0.0), margin=margin, finalize_trades=True)
     return Backtest(df, cls, cash=init_cash, commission=total_commission, margin=margin, finalize_trades=True)
 
 
@@ -48,6 +59,8 @@ def run_single(
     total_commission: float,
     margin: float,
     *,
+    segment: Optional[str] = None,
+    slippage: float = 0.0,
     optimize_mode: Optional[str] = None,
     opt_kwargs: Optional[dict] = None,
     maximize: Optional[str] = None,
@@ -67,28 +80,32 @@ def run_single(
     If the OOS tail is too small, it falls back to a full-period optimise (``info['no_oos']``).
     """
     _enforce_quality(df)
+
+    def _mk(frame):
+        return make_backtest(frame, code, init_cash, total_commission, margin,
+                             segment=segment, slippage=slippage)
+
     if optimize_mode and opt_kwargs:
         split = int(len(df) * (1.0 - oos_fraction))
         is_df, oos_df = df.iloc[:split], df.iloc[split:]
         if len(is_df) < 50 or len(oos_df) < 30:
-            bt = make_backtest(df, code, init_cash, total_commission, margin)
-            stats, best, meta = _opt.optimize(bt, optimize_mode, opt_kwargs, maximize, n_trials, progress_cb)
+            stats, best, meta = _opt.optimize(_mk(df), optimize_mode, opt_kwargs, maximize, n_trials, progress_cb)
             return stats, {"best_params": best, "no_oos": True, "opt_meta": meta}
-        bt_is = make_backtest(is_df, code, init_cash, total_commission, margin)
-        _, best, meta = _opt.optimize(bt_is, optimize_mode, opt_kwargs, maximize, n_trials, progress_cb)
+        _, best, meta = _opt.optimize(_mk(is_df), optimize_mode, opt_kwargs, maximize, n_trials, progress_cb)
         # Re-evaluate the FROZEN best params on each segment with a fresh compiled class.
-        is_stats = make_backtest(is_df, code, init_cash, total_commission, margin).run(**best)
-        oos_stats = make_backtest(oos_df, code, init_cash, total_commission, margin).run(**best)
+        is_stats = _mk(is_df).run(**best)
+        oos_stats = _mk(oos_df).run(**best)
         info = {
             "best_params": best, "is_stats": is_stats, "oos_stats": oos_stats,
             "split_index": split, "oos_fraction": oos_fraction, "no_oos": False,
             "opt_meta": meta,  # heatmap / trials / trial_sharpes for the validation panel (#C)
         }
         return oos_stats, info
-    return make_backtest(df, code, init_cash, total_commission, margin).run(), None
+    return _mk(df).run(), None
 
 
-def native_bokeh_html(df: pd.DataFrame, code: str, init_cash: float, total_commission: float, margin: float) -> str:
+def native_bokeh_html(df: pd.DataFrame, code: str, init_cash: float, total_commission: float, margin: float,
+                      *, segment: Optional[str] = None, slippage: float = 0.0) -> str:
     """Render backtesting.py's NATIVE Bokeh chart (price+indicators+equity+drawdown+trades) to a
     standalone HTML string for embedding via st.components.html (the "Pro chart" option).
 
@@ -98,7 +115,7 @@ def native_bokeh_html(df: pd.DataFrame, code: str, init_cash: float, total_commi
     """
     import tempfile
 
-    bt = make_backtest(df, code, init_cash, total_commission, margin)
+    bt = make_backtest(df, code, init_cash, total_commission, margin, segment=segment, slippage=slippage)
     stats = bt.run()
     tmp = tempfile.NamedTemporaryFile(suffix=".html", delete=False)
     tmp.close()

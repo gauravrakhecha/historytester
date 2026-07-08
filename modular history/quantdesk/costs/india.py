@@ -95,6 +95,33 @@ def compute_trade_charges(segment: str, buy_value, sell_value) -> Dict[str, floa
     }
 
 
+def make_fee_model(segment: str):
+    """Return a backtesting.py commission callable ``fee(order_size, price) -> cash`` for ``segment``.
+
+    v7.1 — wire the REAL India charges INTO the simulated equity curve. backtesting.py invokes the
+    commission per leg with (signed size, fill price) and cannot tell the buy leg from the sell leg,
+    so India's one-sided STT/stamp are split evenly across the two legs. This is EXACT for the
+    symmetric charges (exchange/SEBI/GST + per-order brokerage) and, for the asymmetric STT/stamp,
+    exact when entry≈exit and within ~0.001% of notional otherwise (negligible — STT/stamp are tiny).
+    The per-trade EXACT itemisation still comes from :func:`charges_for_trades` (reconciliation panel).
+    """
+    r = _RATES.get(segment, _RATES["Equity Intraday"])
+    stt_leg = (_q(r["stt_buy"]) + _q(r["stt_sell"])) / _D("2")
+    stamp_leg = _q(r["stamp_buy"]) / _D("2")
+    exch, sebi, gst = _q(r["exch"]), _q(r["sebi"]), _q(r["gst"])
+    brk_mode = r["brokerage"]
+
+    def fee(order_size, price) -> float:
+        notional = _q(abs(order_size)) * _q(price)
+        brokerage = _order_brokerage(brk_mode, notional)
+        txn = (exch + sebi) * notional        # exchange + SEBI (charged both legs)
+        gst_amt = gst * (brokerage + txn)     # GST applies to brokerage + exchange + SEBI only
+        total = (stt_leg + stamp_leg) * notional + txn + brokerage + gst_amt
+        return float(total)
+
+    return fee
+
+
 def charges_for_trades(trades: pd.DataFrame, segment: str) -> Dict[str, float]:
     """Aggregate itemised charges across a backtesting.py ``_trades`` frame.
 

@@ -162,7 +162,7 @@ def _render_monte_carlo(trades, init_cash: float) -> None:
                    "sit inside the band; hugging an edge = the result leaned on trade ordering / luck.")
 
 
-def _render_walk_forward(selected_file, code, opt_kwargs, maximize_key, opt_mode, n_trials, params) -> None:
+def _render_walk_forward(selected_file, code, opt_kwargs, maximize_key, opt_mode, n_trials, params, segment) -> None:
     """Walk-forward analysis section (#C) — re-optimize per IS window, trade frozen params OOS."""
     st.divider()
     st.subheader("🔁 Walk-Forward Analysis")
@@ -185,7 +185,8 @@ def _render_walk_forward(selected_file, code, opt_kwargs, maximize_key, opt_mode
             df, code, params["initial_capital"], params["total_commission"], params["margin"],
             opt_kwargs=opt_kwargs, maximize=maximize_key, mode=opt_mode,
             n_windows=int(n_windows), oos_frac=float(oos_frac), anchored=anchored,
-            n_trials=int(n_trials), progress_cb=lambda p, t: pbar.progress(min(1.0, p), text=t),
+            n_trials=int(n_trials), segment=segment, slippage=params["slippage"],
+            progress_cb=lambda p, t: pbar.progress(min(1.0, p), text=t),
         )
     except Exception as e:  # noqa: BLE001
         st.warning(f"Walk-forward could not run: {e}")
@@ -204,41 +205,37 @@ def _render_walk_forward(selected_file, code, opt_kwargs, maximize_key, opt_mode
                "next unseen slice. Consistent OOS results across windows is the real robustness test.")
 
 
-def _render_charges_panel(stats, trades, segment: str, init_cash: float, total_commission: float) -> dict:
-    """Real India statutory charges as a post-trade pass (#2). Returns the breakdown dict.
+def _render_charges_panel(stats, trades, segment: str, init_cash: float) -> dict:
+    """Reconcile the real India statutory charges now applied INSIDE the simulation (#C, v7.1).
 
-    IMPORTANT (audit fix): ``trades['PnL']`` is already NET of the engine's flat commission
-    (``total_commission`` per leg). To avoid double-counting and a mislabeled "Gross", we add the
-    engine's flat cost BACK to recover the true commission-free gross, then subtract the real
-    India statutory charges to get the honest net.
+    The engine runs with ``costs.india.make_fee_model(segment)``, so ``trades['PnL']`` is already NET
+    of the per-leg India charges — every headline / optimizer / WFO / Monte-Carlo metric is
+    charge-accurate. This panel is the exact per-trade reconciliation: it itemises the charges and
+    shows the charge-free Gross (= engine Net + charges) beside the engine's Net.
     """
-    st.subheader("💸 Real India Charges — Gross vs Net")
+    st.subheader("💸 Real India Charges (applied inside the backtest)")
     if trades is None or trades.empty:
         st.info("No trades to charge.")
         return {}
     ch = india.charges_for_trades(trades, segment)
-    pnl_after_engine = float(trades["PnL"].sum()) if "PnL" in trades.columns else 0.0
-    # engine commission = total_commission × (entry_notional + exit_notional), summed over trades
-    notional = float((trades["Size"].abs() * trades["EntryPrice"]).sum()
-                     + (trades["Size"].abs() * trades["ExitPrice"]).sum())
-    engine_cost = total_commission * notional
-    gross_pnl = pnl_after_engine + engine_cost  # commission-free gross
-    net_pnl = gross_pnl - ch["total"]
+    net_pnl = float(trades["PnL"].sum()) if "PnL" in trades.columns else 0.0  # engine PnL — already net
+    gross_pnl = net_pnl + ch["total"]  # add statutory charges back to show the charge-free gross
     gross_ret = gross_pnl / init_cash * 100
     net_ret = net_pnl / init_cash * 100
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Gross P&L (no costs)", f"₹{gross_pnl:,.0f}")
+    c1.metric("Gross P&L (before charges)", f"₹{gross_pnl:,.0f}")
     c2.metric("Real India Charges", f"₹{ch['total']:,.0f}", help="STT + stamp + exchange + SEBI + brokerage + 18% GST")
-    c3.metric("Net P&L (after real charges)", f"₹{net_pnl:,.0f}", delta=f"{net_ret-gross_ret:.2f}% vs gross")
+    c3.metric("Net P&L (after charges)", f"₹{net_pnl:,.0f}", delta=f"{net_ret-gross_ret:.2f}% vs gross")
     c4.metric("Net Return", f"{net_ret:.2f}%")
     bd = pd.DataFrame(
         [{"Charge": k.replace("_", " ").title(), "₹": ch[k]}
          for k in ["stt", "stamp_duty", "exchange", "sebi", "brokerage", "gst", "total"]]
     ).set_index("Charge")
     st.dataframe(bd, use_container_width=True)
-    st.caption(f"Segment: **{segment}** · {ch['num_trades']} trades · Decimal per-leg charges. "
-               f"Gross is reconstructed by removing the engine's flat ₹{engine_cost:,.0f} cost, "
-               "so real statutory charges are the only cost layer (no double counting).")
+    st.caption(f"Segment: **{segment}** · {ch['num_trades']} trades · Decimal per-leg charges. These are "
+               "applied **inside the simulation**, so the Return / Sharpe / Drawdown and every optimizer, "
+               "walk-forward and Monte-Carlo metric above is already net of them. (One-sided STT/stamp are "
+               "split evenly across the two legs in-engine; this table is the exact per-trade reconciliation.)")
     ch["gross_pnl"], ch["net_pnl"], ch["net_return_pct"] = gross_pnl, net_pnl, net_ret
     return ch
 
@@ -389,6 +386,7 @@ def _render_single(ctx, history):
 
                 stats, info = engine.run_single(
                     df, code, init_cash, params["total_commission"], params["margin"],
+                    segment=segment, slippage=params["slippage"],  # #C: real India charges in the equity curve
                     optimize_mode=optimize_mode, opt_kwargs=opt_kwargs_dynamic,
                     maximize=maximize_key, n_trials=int(n_trials), progress_cb=_cb if optimize_mode else None,
                 )
@@ -483,13 +481,14 @@ def _render_single(ctx, history):
                     st.subheader("Engine-native Chart (Bokeh)")
                     try:
                         with st.spinner("Rendering engine-native chart…"):
-                            html = engine.native_bokeh_html(df, code, init_cash, params["total_commission"], params["margin"])
+                            html = engine.native_bokeh_html(df, code, init_cash, params["total_commission"], params["margin"],
+                                                            segment=segment, slippage=params["slippage"])
                         components.html(html, height=620, scrolling=True)
                     except Exception as be:
                         st.warning(f"Could not generate the engine-native Bokeh chart: {be}")
 
-                # #2 Real India charges — Gross vs Net
-                charges = _render_charges_panel(stats, trades, segment, init_cash, params["total_commission"])
+                # #C Real India charges — now applied inside the sim; this is the reconciliation
+                charges = _render_charges_panel(stats, trades, segment, init_cash)
 
                 # #4 QuantStats tearsheet + risk analytics
                 _render_quantstats(stats)
@@ -545,7 +544,7 @@ def _render_single(ctx, history):
     if enable_optimizer and opt_kwargs_dynamic:
         maximize_key = _MAXIMIZE_MAP.get(opt_maximize, "Return [%]")
         _render_walk_forward(selected_file, code, opt_kwargs_dynamic, maximize_key, opt_mode,
-                             int(n_trials), settings_repo.backtest_params())
+                             int(n_trials), settings_repo.backtest_params(), segment)
 
 
 def _render_batch(ctx, history):

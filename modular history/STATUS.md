@@ -1,6 +1,6 @@
 # CURRENT STATUS — QuantDesk (modular) — resume doc
 
-**Last updated:** 2026-06-28 · **Current version:** **v7.0.1** · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
+**Last updated:** 2026-06-28 · **Current version:** **v7.5** · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
 
 > **Read this first after a context reset.** It captures everything needed to continue without re-deriving state.
 
@@ -11,15 +11,15 @@ A modular rebuild of an independent app: the **Upstox "Unified Market Data Downl
 
 - **Original** single-file app: `D:\mbs\historydownloader\upstox_app.py` (3,207 lines) — **retained, never edited**.
 - **This (modular) app:** `D:\mbs\historydownloader\modular history\` → package `quantdesk/` (57 modules) + thin `app_main.py`.
-- **Build is complete and shipped through v7.0.** Not a work-in-progress refactor — it's a maintained product now.
+- **Build is complete and shipped through v7.5.** Not a work-in-progress refactor — it's a maintained product now.
 
 ## 2. Where it's published
 | Repo | Visibility | State | Purpose |
 |---|---|---|---|
-| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v7.0.1** | main repo (v3 monolith at root + `modular history/` subfolder) |
-| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v7.0.1** | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
+| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v7.5** | main repo (v3 monolith at root + `modular history/` subfolder) |
+| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v7.5** | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
 
-Tags: v3.0–v3.3 (monolith) → v4.0 (modular) → v5.0 (honest numbers) → v6.0 (audit/speed/multi-format) → v6.1 (chart redesign) → v7.0-alpha (v7 Phase A) → v7.0 (Feature Maturity: A+B+C) → **v7.0.1 (perf: page-switch lag fix)**. Only `main` exists on historytester (old sambhav/sabhav branches deleted).
+Tags: … → v7.0 (Feature Maturity: A+B+C) → v7.0.1 (perf: page-switch lag fix) → **v7.5 (Trustworthy Core pt.1: security AST-whitelist + charges-in-equity)**. Only `main` exists on historytester (old sambhav/sabhav branches deleted).
 
 ## 3. How to run & verify
 ```bat
@@ -50,7 +50,24 @@ Python 3.12 (uv venv) · streamlit 1.58 · plotly 6.8 · bokeh 3.9.1 (transitive
 - Indicator overlay-vs-panel is single-sourced in `config.INDICATOR_PLACEMENT`.
 - Default save format = Both. Local tools work without broker login.
 
-## 7. TO CONTINUE — ⭐ v7 Feature Maturity RELEASED (A+B+C, v7.0) → see [`ROADMAP_v7.md`](ROADMAP_v7.md)
+## 7. TO CONTINUE — ⭐ v7.1 "Trustworthy Core" IN PROGRESS → see [`ROADMAP_v7.1_trustworthy_core.md`](ROADMAP_v7.1_trustworthy_core.md)
+
+> After a multi-agent quant-desk audit scored the app **4.8/10** (verified), we chose to fix the top
+> 3 *wrong/dangerous* items (v7.1) BEFORE building the data agent (v8, [`ROADMAP_v8_data_agent.md`](ROADMAP_v8_data_agent.md)).
+> - **✅ Task 1 — AST-whitelist + preset validation (security), DONE 2026-06-28 (local, unpushed):**
+>   closes the preset-upload RCE. New `quantdesk/strategy/validation.py` (`assert_safe_ast` in the
+>   compiler + `validate_preset` at the upload/load door). `tests/test_security.py` (21); full suite
+>   **88 green** (no AST false positives) + AppTest.
+> - **✅ Task 2 — Charges-in-equity, DONE 2026-06-28 (local, unpushed):** `costs.india.make_fee_model(segment)`
+>   → a backtesting.py commission callable; threaded `segment`/`slippage` through
+>   engine.make_backtest/run_single/native_bokeh_html + wfo.walk_forward + the backtester UI, so
+>   Return/Sharpe/DSR/WFO/MC are all net of real charges (Gross-vs-Net panel is now a reconciliation).
+>   `tests/test_charges_in_equity.py` (7); full suite **95 green** + AppTest. Real drive: a strategy's
+>   gross 20.8%/0.79 Sharpe/95% PSR → 0.7%/0.03/55% net of ₹20k charges.
+> - **▶ Task 3 — NEXT (in progress):** `quantdesk/risk/` module (risk-% & ATR sizing, ATR/time stops, max-DD circuit-breaker).
+> **Tasks 1 & 2 RELEASED as v7.5** (2026-06-28); Task 3 follows in the next tag. (Target 4.8→~6.0.)
+
+### Earlier: v7 Feature Maturity RELEASED (A+B+C, v7.0; perf fix v7.0.1) → see [`ROADMAP_v7.md`](ROADMAP_v7.md)
 A multi-agent maturity audit confirmed the user's critique: **Backtester = usable, Optimizer = amateur,
 ML Pattern Finder = amateur/toy** (ML trained on raw absolute features that don't generalize across assets).
 

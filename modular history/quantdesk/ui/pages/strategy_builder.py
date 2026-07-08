@@ -16,6 +16,7 @@ import streamlit as st
 from quantdesk.strategy import presets
 from quantdesk.strategy.codegen import build_strategy_code
 from quantdesk.strategy.indicators import INDICATOR_PARAM_SPECS, INDICATOR_TYPES
+from quantdesk.strategy.validation import validate_preset
 from quantdesk.strategy.models import (
     OPERATORS,
     STRAT_DIRECTIONS,
@@ -28,6 +29,9 @@ ZONE_ACTIONS = ["Normal Trading", "Block New Entries", "Tighten Trailing Stop", 
 
 
 def _restore_from_preset(data: dict):
+    # v7.1 security: validate a preset (uploaded JSON or a server file) before it reaches
+    # session_state -> codegen -> exec(). Raises PresetValidationError, caught by the callers.
+    data = validate_preset(data)
     st.session_state["indicators"] = data.get("indicators", [])
     st.session_state["buy_rules"] = data.get("buy_rules", [])
     st.session_state["sell_rules"] = data.get("sell_rules", [])

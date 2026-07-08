@@ -27,6 +27,7 @@ from quantdesk.strategy.indicators import (
     ret_n_vec,
     zscore_vec,
 )
+from quantdesk.strategy.validation import assert_safe_ast
 
 _bytecode_cache: dict[int, object] = {}
 
@@ -55,6 +56,10 @@ def compile_strategy(code: str):
     key = hash(code)
     code_obj = _bytecode_cache.get(key)
     if code_obj is None:
+        # Security gate (v7.1): reject any disallowed construct (imports/builtins/dunder escapes)
+        # BEFORE exec — the one place every run funnels through, so it also covers programmatic
+        # callers, not just the preset-upload path. Cached with the bytecode (same source = safe).
+        assert_safe_ast(code)
         code_obj = compile(code, "<visual_strategy>", "exec")
         if len(_bytecode_cache) > 128:
             _bytecode_cache.clear()

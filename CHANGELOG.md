@@ -1,5 +1,34 @@
 # Changelog
 
+## v7.5 — Trustworthy Core, part 1: security + charge-accurate backtests (2026-06-28)
+
+A multi-agent quant-desk audit scored the app **4.8/10** and flagged two things as *wrong or
+dangerous*. v7.5 fixes both (the "Trustworthy Core" milestone; the risk-management module lands next).
+**95 passing tests**, AppTest, and real-data drives.
+
+**Security — closes a real RCE.** The Strategy Builder's JSON preset upload fed an arbitrary file
+straight into `session_state` → codegen → `compiler.exec()` with no validation, and codegen
+interpolated user-controlled fields verbatim into the source string. Two independent layers now guard it:
+- **`strategy/validation.py`** (new) — `assert_safe_ast` runs in the compiler right before `exec()`
+  (rejects imports outside a tiny allowlist, dangerous builtins, and any dunder attribute/string,
+  blocking `().__class__.__bases__`-style sandbox escapes). Because every run funnels through
+  `compile_strategy`, this protects programmatic callers too, not just the upload path.
+- **`validate_preset`** — schema/type-validation at the upload/load door: every rule/zone column
+  reference must resolve to a real OHLCV/indicator column, thresholds must be numeric, and every
+  type/operator/action/mode must be a known registry value.
+
+**Charge-accurate backtests — the audit's #1 correctness finding.** The exact India charge model was a
+post-trade *display* pass; it never entered the simulated equity curve, so Return/Sharpe/DSR/walk-forward/
+Monte-Carlo and the optimizer objective all ran on an approximate flat commission. Now
+`costs/india.make_fee_model(segment)` supplies a per-leg commission **callable** that backtesting.py
+applies **inside** the simulation (`engine`, `wfo`, and the Backtester UI thread the segment + slippage
+through; the Gross-vs-Net panel becomes a per-trade reconciliation). The impact is large: an EMA-crossover
+that looked like **20.8% return / 0.79 Sharpe / 95% PSR** gross is revealed as **0.7% / 0.03 / 55%** after
+~₹20k of real charges — the difference between "significant edge" and "destroyed by costs".
+
+Also bundles the planning docs `modular history/ROADMAP_v7.1_trustworthy_core.md` and
+`ROADMAP_v8_data_agent.md` (the upcoming autonomous data agent).
+
 ## v7.0.1 — Startup/navigation performance (2026-06-28)
 
 Patch release. Opening the **Strategy & Indicator Plotter** or **Backtester** for the first time in a
