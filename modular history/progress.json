@@ -1,12 +1,12 @@
 {
   "project": "QuantDesk — Unified Market Data Downloader & Quant Engine (modular edition)",
-  "as_of": "2026-06-28",
-  "current_version": "v7.5",
-  "one_line_status": "Modular rebuild SHIPPED through v7.5 (on GitHub). History: v7.0 'Feature Maturity' (A normalized features + B ML rigor + C optimizer validation), v7.0.1 (perf: lazy imports fix page-switch lag). A multi-agent quant-desk audit scored the app 4.8/10 -> v7.x 'Trustworthy Core' milestone fixes the top wrong/dangerous items: Task 1 (security: compiler AST-whitelist + preset validation, closes the preset-upload RCE) + Task 2 (charges-in-equity: real India per-leg charges now applied INSIDE the sim so Return/Sharpe/DSR/WFO/MC are charge-accurate — an EMA strategy's gross 20.8%/0.79 Sharpe/95% PSR collapses to 0.7%/0.03/55% net). Tasks 1+2 RELEASED as v7.5 (95 tests green; AppTest + real-data drives). historytester(main, tag v7.5) + private sambhav synced to v7.5. NEXT = Task 3 (quantdesk/risk/ module: risk-% & ATR sizing, ATR/time stops, max-DD circuit-breaker) — see ROADMAP_v7.1_trustworthy_core.md.",
+  "as_of": "2026-07-08",
+  "current_version": "v7.6",
+  "one_line_status": "Modular rebuild SHIPPED through v7.5 (on GitHub). History: v7.0 'Feature Maturity' (A normalized features + B ML rigor + C optimizer validation), v7.0.1 (perf: lazy imports fix page-switch lag). A multi-agent quant-desk audit scored the app 4.8/10 -> v7.x 'Trustworthy Core' milestone fixes the top wrong/dangerous items: Task 1 (security: compiler AST-whitelist + preset validation, closes the preset-upload RCE) + Task 2 (charges-in-equity: real India per-leg charges now applied INSIDE the sim so Return/Sharpe/DSR/WFO/MC are charge-accurate — an EMA strategy's gross 20.8%/0.79 Sharpe/95% PSR collapses to 0.7%/0.03/55% net). Tasks 1+2 RELEASED as v7.5; Task 3 (quantdesk/risk/ module core: risk-% of equity sizing sized from the stop distance + max-drawdown circuit-breaker, wired through models/codegen/builder-UI/validation; pure risk/sizing.py+stops.py injected into the compiler namespace) RELEASED as v7.6 (105 tests green; AppTest; real drive capped DD -11.8%->-10.0%). Trustworthy Core milestone COMPLETE (audit 4.8->~5.8-6.0). historytester(main, tag v7.6) + private sambhav synced to v7.6. NEXT = Task 3 pt.2 (ATR/breakeven/time stops in codegen, partial exits, Kelly sizing), then v8 = ROADMAP_v8_data_agent.md.",
 
   "next_phase": {
     "id": "v7_1_trustworthy_core",
-    "status": "Trustworthy Core (post-audit): Task 1 (security AST-whitelist + preset validation) + Task 2 (charges-in-equity) DONE and RELEASED as v7.5 (95 tests green). Task 3 (quantdesk/risk/ module) IN PROGRESS. Then v8 = ROADMAP_v8_data_agent.md.",
+    "status": "Trustworthy Core (post-audit) COMPLETE: Task 1 (security) + Task 2 (charges-in-equity) RELEASED as v7.5; Task 3 (risk module core: risk-% sizing + max-DD circuit-breaker) RELEASED as v7.6 (105 tests green). NEXT = Task 3 pt.2 (ATR/breakeven/time stops in codegen, partial exits, Kelly sizing), then v8 = ROADMAP_v8_data_agent.md.",
     "priority": "HIGH",
     "plan_file": "ROADMAP_v7.md  (implementation-ready)",
     "why": "Multi-agent maturity audit (run wf_ebc554f3-006; aborted on schema cap but 4/5 reviewers completed, unanimous, recovered from transcripts) confirmed the user's critique: Backtester=usable, Optimizer=amateur, ML Pattern Finder=amateur/toy. ML trains on RAW absolute features (metrics.enrich_trades ~L73-89; ml/patterns.py) that don't generalize across instruments/asset-classes; no holdout/significance; bulk mode concatenates different-scale instruments.",
@@ -40,17 +40,17 @@
       "url": "https://github.com/gauravrakhecha/historytester",
       "visibility": "PRIVATE",
       "branches": ["main"],
-      "latest_tag": "v7.5",
+      "latest_tag": "v7.6",
       "latest_commit": "see tag v7.0.1",
       "layout": "root = v3 single-file app (upstox_app.py, LICENSE, README, CHANGELOG, User Guide PDF, bats) + 'modular history/' subfolder = the v4-v7.0.1 modular app",
-      "tags": ["v3.0","v3.1","v3.2","v3.3","v4.0","v5.0","v6.0","v6.1","v7.0-alpha","v7.0","v7.0.1","v7.5"],
+      "tags": ["v3.0","v3.1","v3.2","v3.3","v4.0","v5.0","v6.0","v6.1","v7.0-alpha","v7.0","v7.0.1","v7.5","v7.6"],
       "notes": "Old sambhav/sabhav branches are now deleted; only main remains."
     },
     "sambhav": {
       "url": "https://github.com/gauravrakhecha/sambhav",
       "visibility": "PRIVATE",
       "purpose": "Dedicated collaborator workspace (GitHub has no per-branch read access, so a separate repo gives true isolation). Invite collaborator here only.",
-      "synced_to": "v7.5",
+      "synced_to": "v7.6",
       "sync_procedure": "clone historytester main (depth 1) -> clone sambhav -> replace sambhav working tree (keep .git) with historytester content (tar excluding .git) -> commit 'Sync to vX' -> push. Always re-run secret scan."
     }
   },

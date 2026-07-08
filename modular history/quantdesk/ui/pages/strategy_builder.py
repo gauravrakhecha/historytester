@@ -43,6 +43,8 @@ def _restore_from_preset(data: dict):
     st.session_state["tp_pct"] = rm.get("tp_pct", 5.0)
     st.session_state["trail_pct"] = rm.get("trail_pct", 2.0)
     st.session_state["strat_dir"] = rm.get("strat_dir", "Long Only")
+    st.session_state["risk_pct"] = rm.get("risk_pct", 1.0)
+    st.session_state["max_dd_halt_pct"] = rm.get("max_dd_halt_pct", 0.0)
     # position sizing (preserved across save/load — was previously lost)
     st.session_state["pos_size_type"] = data.get("pos_size_type", "Fixed Value per Trade (₹) (Default)")
     st.session_state["fixed_pos_value"] = data.get("fixed_pos_value", 50000.0)
@@ -62,6 +64,8 @@ def _current_export() -> dict:
             "tp_pct": st.session_state.get("tp_pct", 5.0),
             "trail_pct": st.session_state.get("trail_pct", 2.0),
             "strat_dir": st.session_state.get("strat_dir", "Long Only"),
+            "risk_pct": st.session_state.get("risk_pct", 1.0),
+            "max_dd_halt_pct": st.session_state.get("max_dd_halt_pct", 0.0),
         },
         "pos_size_type": st.session_state.get("pos_size_type", "Fixed Value per Trade (₹) (Default)"),
         "fixed_pos_value": st.session_state.get("fixed_pos_value", 50000.0),
@@ -315,17 +319,27 @@ def render(ctx):
 
     pos_size_type = st.radio(
         "Position Sizing",
-        ["Fixed Value per Trade (₹) (Default)", "Compound 100% Equity"],
+        ["Fixed Value per Trade (₹) (Default)", "Compound 100% Equity", "Risk % of Equity per Trade"],
         horizontal=True,
-        help="Fixed Value provides a realistic capitalisation limit. 100% Equity compounds your whole capital each trade.",
+        help="Fixed Value caps capital per trade. 100% Equity compounds your whole capital each trade. "
+             "Risk % sizes each trade so a stop-out loses a fixed % of equity (professional sizing — needs a Stop Loss).",
     )
     fixed_pos_value = 0.0
+    risk_pct = st.session_state.get("risk_pct", 1.0)
     if pos_size_type == "Fixed Value per Trade (₹) (Default)":
         fixed_pos_value = st.number_input("Amount per Trade (₹)", value=st.session_state.get("fixed_pos_value", 50000.0), min_value=100.0, step=1000.0)
+    elif pos_size_type == "Risk % of Equity per Trade":
+        risk_pct = st.number_input(
+            "Risk % of Equity per Trade", value=float(risk_pct), min_value=0.1, max_value=50.0, step=0.1,
+            help="Each trade is sized so hitting the stop loses ~this % of equity. Requires a Static % Stop Loss (set the Exit mode below).",
+        )
+        if st.session_state.get("rm_mode") != "Static % Stop Loss / Take Profit":
+            st.caption("⚠️ Risk-% sizing needs a stop distance — set **Exit / Risk Management Mode → Static % Stop Loss / Take Profit** below (otherwise it falls back to a fixed ₹ size).")
     lot_size = st.number_input("Instrument Lot Size (Use 1 for Equity)", value=st.session_state.get("lot_size", 1), min_value=1, step=1, help="Options and Futures trade in fixed lot multiples.")
 
     st.session_state["pos_size_type"] = pos_size_type
     st.session_state["fixed_pos_value"] = fixed_pos_value
+    st.session_state["risk_pct"] = risk_pct
     st.session_state["lot_size"] = lot_size
 
     rm_mode = st.radio(
@@ -348,6 +362,13 @@ def render(ctx):
     st.session_state["sl_pct"] = sl_pct
     st.session_state["tp_pct"] = tp_pct
     st.session_state["trail_pct"] = trail_pct
+
+    max_dd_halt_pct = st.number_input(
+        "🛑 Max-Drawdown Circuit Breaker % (0 = off)",
+        value=float(st.session_state.get("max_dd_halt_pct", 0.0)), min_value=0.0, max_value=100.0, step=1.0,
+        help="Flatten any open position and stop taking new trades once equity falls this far below its running peak.",
+    )
+    st.session_state["max_dd_halt_pct"] = max_dd_halt_pct
 
     # --- Compile -----------------------------------------------------------
     st.subheader("Compile Strategy")

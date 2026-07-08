@@ -6,7 +6,7 @@
   "target_root": "D:/mbs/historydownloader/modular history",
   "verification_data": "D:/simpleton/historydownloader/data",
   "engine_decision": "keep backtesting.py",
-  "updated_at": "2026-07-08 09:12:59",
+  "updated_at": "2026-07-08 21:08:41",
   "status_legend": [
     "pending",
     "in_progress",
@@ -150,8 +150,8 @@
       "source_lines": "1442-1451, 1653-1661",
       "purpose": "StrategyConfig + safe_name + selectable_columns (fixes multi-output omission bug)",
       "verified": true,
-      "notes": "classify_columns",
-      "updated_at": "2026-06-27 10:28:15"
+      "notes": "v7.1 Task3: RiskManagement +risk_pct +max_dd_halt_pct (round-trip)",
+      "updated_at": "2026-07-08 21:08:40"
     },
     "quantdesk/data/loader.py": {
       "status": "verified",
@@ -285,8 +285,8 @@
         "tests/test_codegen.py"
       ],
       "verified": true,
-      "notes": "audit fix: short ratchet + tighten zone",
-      "updated_at": "2026-06-27 04:29:47"
+      "notes": "v7.1 Task3: Risk-%-of-equity sizing branch (from stop distance, capped) + max-DD circuit-breaker in next()",
+      "updated_at": "2026-07-08 21:08:40"
     },
     "quantdesk/strategy/compiler.py": {
       "status": "verified",
@@ -294,8 +294,8 @@
       "source_lines": "716-720",
       "purpose": "exec code -> Strategy class; cached by code-hash",
       "verified": true,
-      "notes": "v7.1: assert_safe_ast(code) on cache-miss before exec()",
-      "updated_at": "2026-07-08 08:56:29"
+      "notes": "v7.1 Task3: inject risk sizing helpers into exec namespace",
+      "updated_at": "2026-07-08 21:08:40"
     },
     "quantdesk/strategy/presets.py": {
       "status": "verified",
@@ -468,8 +468,8 @@
       "source_lines": "1437-2266",
       "purpose": "No-Code Strategy Builder page",
       "verified": true,
-      "notes": "v7.1: route preset upload+server-load through validate_preset",
-      "updated_at": "2026-07-08 08:56:30"
+      "notes": "v7.1 Task3: Risk-% sizing option + risk_pct input + max-DD breaker input + preset persistence",
+      "updated_at": "2026-07-08 21:08:41"
     },
     "quantdesk/ui/pages/plotter.py": {
       "status": "verified",
@@ -677,6 +677,30 @@
       "verified": true,
       "notes": "v7.1 Task2: 7 tests (golden-number reconciliation, charges reduce return, back-compat)",
       "updated_at": "2026-07-08 09:12:59"
+    },
+    "quantdesk/risk/__init__.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "v7.1 Task3: risk package (sizing+stops re-exports)",
+      "updated_at": "2026-07-08 21:08:39"
+    },
+    "quantdesk/risk/sizing.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "v7.1 Task3: pure sizing — risk_pct_qty/atr_risk_qty/percent_equity_qty/fixed_value_qty/kelly (lot-rounded, defensive)",
+      "updated_at": "2026-07-08 21:08:39"
+    },
+    "quantdesk/risk/stops.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "v7.1 Task3: pure stops — static_sl_tp/atr_stop/breakeven_stop/trailing_stop",
+      "updated_at": "2026-07-08 21:08:40"
+    },
+    "tests/test_risk.py": {
+      "status": "verified",
+      "verified": true,
+      "notes": "v7.1 Task3: 10 tests (sizing/stop math + codegen compile/run + parity)",
+      "updated_at": "2026-07-08 21:08:41"
     }
   },
   "feature_parity_checklist": {
@@ -1759,6 +1783,51 @@
       "ts": "2026-07-08 09:12:59",
       "agent": "orchestrator",
       "event": "v7.1 Task2 (charges-in-equity) DONE — real India charges now in the sim equity curve; 95 tests green; drive shows 20.8%->0.7% net; LOCAL/unpushed"
+    },
+    {
+      "ts": "2026-07-08 21:08:39",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/risk/__init__.py -> verified (v7.1 Task3: risk package (sizing+stops re-exports))"
+    },
+    {
+      "ts": "2026-07-08 21:08:39",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/risk/sizing.py -> verified (v7.1 Task3: pure sizing — risk_pct_qty/atr_risk_qty/percent_equity_qty/fixed_value_qty/kelly (lot-rounded, defensive))"
+    },
+    {
+      "ts": "2026-07-08 21:08:40",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/risk/stops.py -> verified (v7.1 Task3: pure stops — static_sl_tp/atr_stop/breakeven_stop/trailing_stop)"
+    },
+    {
+      "ts": "2026-07-08 21:08:40",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/codegen.py -> verified (v7.1 Task3: Risk-%-of-equity sizing branch (from stop distance, capped) + max-DD circuit-breaker in next())"
+    },
+    {
+      "ts": "2026-07-08 21:08:40",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/models.py -> verified (v7.1 Task3: RiskManagement +risk_pct +max_dd_halt_pct (round-trip))"
+    },
+    {
+      "ts": "2026-07-08 21:08:40",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/compiler.py -> verified (v7.1 Task3: inject risk sizing helpers into exec namespace)"
+    },
+    {
+      "ts": "2026-07-08 21:08:41",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/strategy_builder.py -> verified (v7.1 Task3: Risk-% sizing option + risk_pct input + max-DD breaker input + preset persistence)"
+    },
+    {
+      "ts": "2026-07-08 21:08:41",
+      "agent": "orchestrator",
+      "event": "file:tests/test_risk.py -> verified (v7.1 Task3: 10 tests (sizing/stop math + codegen compile/run + parity))"
+    },
+    {
+      "ts": "2026-07-08 21:08:41",
+      "agent": "orchestrator",
+      "event": "v7.1 Task3 (risk module core: risk-% sizing + max-DD breaker) DONE — 105 tests green; breaker capped DD -11.8%->-10.0%; LOCAL/unpushed"
     }
   ]
 }

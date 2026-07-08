@@ -28,6 +28,7 @@ from quantdesk.strategy.indicators import (
     zscore_vec,
 )
 from quantdesk.strategy.validation import assert_safe_ast
+from quantdesk.risk.sizing import atr_risk_qty, fixed_value_qty, percent_equity_qty, risk_pct_qty
 
 _bytecode_cache: dict[int, object] = {}
 
@@ -48,6 +49,9 @@ def _namespace() -> dict:
         "ratio_to_sma_vec": ratio_to_sma_vec, "dist_from_ma_atr_vec": dist_from_ma_atr_vec,
         "ma_slope_atr_vec": ma_slope_atr_vec, "zscore_vec": zscore_vec,
         "pctile_rank_vec": pctile_rank_vec, "ret_n_vec": ret_n_vec,
+        # v7.1 Task 3 — risk-based position sizing helpers (pure, unit-tested; see quantdesk.risk)
+        "fixed_value_qty": fixed_value_qty, "percent_equity_qty": percent_equity_qty,
+        "risk_pct_qty": risk_pct_qty, "atr_risk_qty": atr_risk_qty,
     }
 
 

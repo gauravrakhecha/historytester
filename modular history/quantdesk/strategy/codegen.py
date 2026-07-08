@@ -62,6 +62,8 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
     pos_size_type = cfg.pos_size_type
     fixed_pos_value = cfg.fixed_pos_value
     lot_size = cfg.lot_size
+    risk_pct = getattr(rm, "risk_pct", 1.0)               # v7.1 Task 3: risk-% sizing
+    max_dd_halt_pct = getattr(rm, "max_dd_halt_pct", 0.0)  # v7.1 Task 3: max-drawdown circuit breaker
 
     has_zones = len(range_zones) > 0
 
@@ -129,6 +131,16 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
     code += "                self.rights_premium_earned += earned\n"
     code += "                self._broker._cash += earned\n"
 
+    if max_dd_halt_pct > 0:
+        # Max-drawdown circuit breaker (v7.1 Task 3): once equity falls this far below its running
+        # peak, flatten any position and block new entries for the rest of the run.
+        code += "        # Max-drawdown circuit breaker\n"
+        code += "        self._peak_equity = max(getattr(self, '_peak_equity', self.equity), self.equity)\n"
+        code += f"        if self.equity <= self._peak_equity * {1 - max_dd_halt_pct / 100.0}:\n"
+        code += "            if self.position: self.position.close()\n"
+        code += "            self._prev_position_size = self.position.size\n"
+        code += "            return\n"
+
     buy_cond = _gen_logic(buy_rules, "buy", src_map)
     sell_cond = _gen_logic(sell_rules, "sell", src_map)
     no_trade_cond = _gen_logic(no_trade_rules, "no_trade", src_map)
@@ -160,12 +172,22 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
                 code += "            pass  # Normal Trading\n"
         code += "\n"
 
-    # position sizing
-    if pos_size_type == "Fixed Value per Trade (₹) (Default)":
+    # position sizing (v7.1 Task 3: + risk-% of equity, sized from the stop distance)
+    if pos_size_type == "Risk % of Equity per Trade":
+        if sl_pct > 0:  # the static % stop gives the per-unit risk (stop distance)
+            code += f"        _stop_dist = self.data.Close[-1] * {sl_pct / 100.0}\n"
+            code += f"        _rq = risk_pct_qty(self.equity, {risk_pct}, _stop_dist, self.lot_size)\n"
+            # cap to what equity can actually afford (tight stops otherwise size beyond capital)
+            code += "        _cap = max(self.lot_size, int((self.equity * 0.99) // self.data.Close[-1]))\n"
+            code += "        _trade_size = max(self.lot_size, min(_rq, _cap))\n"
+        else:  # no stop distance available -> fall back to a fixed notional
+            code += f"        _trade_size = fixed_value_qty({fixed_pos_value or 50000.0}, self.data.Close[-1], self.lot_size)\n"
+    elif pos_size_type == "Fixed Value per Trade (₹) (Default)":
         code += f"        _raw_qty = int({fixed_pos_value} // self.data.Close[-1])\n"
-    else:
+        code += "        _trade_size = max(self.lot_size, _raw_qty - (_raw_qty % self.lot_size))\n"
+    else:  # Compound 100% Equity / Percent of Equity
         code += "        _raw_qty = int((self.equity * 0.99) // self.data.Close[-1])\n"
-    code += "        _trade_size = max(self.lot_size, _raw_qty - (_raw_qty % self.lot_size))\n"
+        code += "        _trade_size = max(self.lot_size, _raw_qty - (_raw_qty % self.lot_size))\n"
     size_arg = "size=_trade_size"
 
     def get_sl_tp(is_short=False):

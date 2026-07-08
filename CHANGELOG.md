@@ -1,6 +1,26 @@
 # Changelog
 
-## v7.5 — Trustworthy Core, part 1: security + charge-accurate backtests (2026-06-28)
+## v7.6 — Trustworthy Core, part 2: professional risk management (2026-07-08)
+
+Completes the post-audit "Trustworthy Core" milestone by lifting the app's lowest-scored dimension —
+risk management — out of fixed-₹/lot-only sizing. **105 passing tests**, AppTest, and a real-data drive.
+
+- **`quantdesk/risk/{sizing,stops}.py`** (new) — pure, unit-tested primitives: `risk_pct_qty`
+  (`qty = equity*risk% / stop_distance`), `atr_risk_qty`, `percent_equity_qty`, `fixed_value_qty`,
+  `kelly`/`half_kelly`, and `static_sl_tp` / `atr_stop` / `breakeven_stop` / `trailing_stop`. They're
+  injected into the compiler namespace so the no-code codegen calls the **tested** functions instead of
+  inlining string math.
+- **"Risk % of Equity per Trade" sizing** — a new Position-Sizing mode that sizes each trade so a
+  stop-out loses a fixed % of equity (using the Static-% stop distance), capped to affordable size.
+- **Max-drawdown circuit-breaker** — flattens any position and blocks new entries once equity falls a
+  configurable % below its running peak. In a real drive it capped drawdown from −11.8% to exactly −10.0%.
+- Wired through `models.RiskManagement`, `codegen.py`, the Strategy Builder UI, and `validation.py`
+  (round-trips through presets). Existing strategies are byte-identical (parity preserved).
+
+*(Deferred to a later release: wiring ATR/breakeven/time stops into codegen — the pure helpers exist —
+plus partial exits/scale-out and Kelly-informed sizing.)*
+
+## v7.5 — Trustworthy Core, part 1: security + charge-accurate backtests (2026-07-08)
 
 A multi-agent quant-desk audit scored the app **4.8/10** and flagged two things as *wrong or
 dangerous*. v7.5 fixes both (the "Trustworthy Core" milestone; the risk-management module lands next).

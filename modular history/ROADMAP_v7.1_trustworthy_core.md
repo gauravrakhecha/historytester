@@ -44,14 +44,22 @@ never entered the simulated equity curve.
   Full suite **95 green** + AppTest + real-data drive: an EMA strategy's gross 20.8% ret / 0.79 Sharpe
   / 95% PSR collapses to 0.7% / 0.03 / 55% net of ₹20k charges — the exact "not desk-deployable" gap closed.
 
-## Task 3 — `quantdesk/risk/` module (capability)  ⏳ PLANNED
-Risk is toy-tier (fixed-₹/lot sizing only).
-- `risk/{sizing,stops}.py`: pure, unit-tested — risk-% sizing (`qty = equity*risk% / stop_distance`),
-  ATR-risk, %-of-equity, Kelly; ATR/breakeven/time stops.
-- `RiskManagement`/`StrategyConfig` + `codegen.py`: new sizing modes, coexisting SL+TP+trailing,
-  partial exits, and a **max-drawdown circuit-breaker** in `next()` (flatten + block new entries below
-  a peak-drawdown %). Builder UI for the new options.
-- **Verify:** sizing/stop unit tests; codegen→compile→backtest with risk-% sizing; max-DD-breaker test.
+## Task 3 — `quantdesk/risk/` module (capability)  ✅ DONE (core) 2026-06-28
+Lifts the audit's lowest dimension (Risk 3.5) out of fixed-₹/lot-only sizing.
+- **`quantdesk/risk/{sizing,stops}.py`** (new): pure, unit-tested helpers — `risk_pct_qty`
+  (`qty = equity*risk% / stop_distance`), `atr_risk_qty`, `percent_equity_qty`, `fixed_value_qty`,
+  `kelly`/`half_kelly`; `static_sl_tp`, `atr_stop`, `breakeven_stop`, `trailing_stop`. Defensive
+  (bad inputs → one lot / None). Injected into the compiler namespace so codegen calls the *tested*
+  functions instead of inlining string math.
+- **`models.RiskManagement`** + **`codegen.py`** + **builder UI** + **`validation.py`**: a new
+  **"Risk % of Equity per Trade"** sizing mode (sized from the Static-% stop distance, capped to
+  affordable size) and a **max-drawdown circuit-breaker** (`max_dd_halt_pct`) in `next()` — flatten +
+  block new entries once equity falls that far below its running peak. Both round-trip through presets.
+- **Verified:** `tests/test_risk.py` (10 — sizing/stop math, codegen→compile→backtest through the AST
+  gate, default-unchanged parity). Full suite **105 green** + AppTest. Real drive: the breaker capped
+  drawdown from −11.8% to exactly −10.0%; risk-% sizing runs.
+- **Deferred (Task 3 pt.2 / next):** wiring ATR/breakeven/time stops into codegen (helpers exist),
+  partial exits/scale-out, and Kelly-informed sizing.
 
 ## Release
 Ship Tasks 1–3 together as **v7.1** (charges-in-equity is the CHANGELOG headline); publish + sambhav

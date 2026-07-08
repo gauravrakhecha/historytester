@@ -1,6 +1,6 @@
 # CURRENT STATUS — QuantDesk (modular) — resume doc
 
-**Last updated:** 2026-06-28 · **Current version:** **v7.5** · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
+**Last updated:** 2026-07-08 · **Current version:** **v7.6** · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
 
 > **Read this first after a context reset.** It captures everything needed to continue without re-deriving state.
 
@@ -11,15 +11,15 @@ A modular rebuild of an independent app: the **Upstox "Unified Market Data Downl
 
 - **Original** single-file app: `D:\mbs\historydownloader\upstox_app.py` (3,207 lines) — **retained, never edited**.
 - **This (modular) app:** `D:\mbs\historydownloader\modular history\` → package `quantdesk/` (57 modules) + thin `app_main.py`.
-- **Build is complete and shipped through v7.5.** Not a work-in-progress refactor — it's a maintained product now.
+- **Build is complete and shipped through v7.6.** Not a work-in-progress refactor — it's a maintained product now.
 
 ## 2. Where it's published
 | Repo | Visibility | State | Purpose |
 |---|---|---|---|
-| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v7.5** | main repo (v3 monolith at root + `modular history/` subfolder) |
-| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v7.5** | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
+| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v7.6** | main repo (v3 monolith at root + `modular history/` subfolder) |
+| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v7.6** | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
 
-Tags: … → v7.0 (Feature Maturity: A+B+C) → v7.0.1 (perf: page-switch lag fix) → **v7.5 (Trustworthy Core pt.1: security AST-whitelist + charges-in-equity)**. Only `main` exists on historytester (old sambhav/sabhav branches deleted).
+Tags: … → v7.0 (Feature Maturity: A+B+C) → v7.0.1 (perf) → v7.5 (Trustworthy Core pt.1: security + charges-in-equity) → **v7.6 (Trustworthy Core pt.2: risk module — risk-% sizing + max-DD circuit-breaker)**. Only `main` exists on historytester.
 
 ## 3. How to run & verify
 ```bat
@@ -64,8 +64,15 @@ Python 3.12 (uv venv) · streamlit 1.58 · plotly 6.8 · bokeh 3.9.1 (transitive
 >   Return/Sharpe/DSR/WFO/MC are all net of real charges (Gross-vs-Net panel is now a reconciliation).
 >   `tests/test_charges_in_equity.py` (7); full suite **95 green** + AppTest. Real drive: a strategy's
 >   gross 20.8%/0.79 Sharpe/95% PSR → 0.7%/0.03/55% net of ₹20k charges.
-> - **▶ Task 3 — NEXT (in progress):** `quantdesk/risk/` module (risk-% & ATR sizing, ATR/time stops, max-DD circuit-breaker).
-> **Tasks 1 & 2 RELEASED as v7.5** (2026-06-28); Task 3 follows in the next tag. (Target 4.8→~6.0.)
+> - **✅ Task 3 (core) — DONE 2026-06-28 (local, unpushed):** new `quantdesk/risk/{sizing,stops}.py`
+>   (pure, unit-tested; injected into the compiler namespace) + a **"Risk % of Equity per Trade"** sizing
+>   mode (sized from the stop distance) + a **max-drawdown circuit-breaker** wired through
+>   models/codegen/builder-UI/validation. `tests/test_risk.py` (10); full suite **105 green** + AppTest;
+>   real drive: breaker capped DD −11.8%→−10.0%. Deferred pt.2: ATR/breakeven/time stops in codegen,
+>   partial exits, Kelly sizing.
+> **Tasks 1 & 2 RELEASED as v7.5; Task 3 (core) RELEASED as v7.6.** Trustworthy Core milestone complete
+> (audit 4.8→~5.8-6.0). NEXT = Task 3 **pt.2** (ATR/breakeven/time stops in codegen, partial exits, Kelly
+> sizing) — IN PROGRESS — then **v8** the data agent ([`ROADMAP_v8_data_agent.md`](ROADMAP_v8_data_agent.md)).
 
 ### Earlier: v7 Feature Maturity RELEASED (A+B+C, v7.0; perf fix v7.0.1) → see [`ROADMAP_v7.md`](ROADMAP_v7.md)
 A multi-agent maturity audit confirmed the user's critique: **Backtester = usable, Optimizer = amateur,

@@ -91,6 +91,9 @@ class RiskManagement:
     tp_pct: float = 5.0
     trail_pct: float = 2.0
     strat_dir: str = "Long Only"
+    # v7.1 Task 3 — professional risk controls
+    risk_pct: float = 1.0        # % of equity risked per trade (for "Risk % of Equity" sizing)
+    max_dd_halt_pct: float = 0.0  # circuit-breaker: flatten + block entries below this peak-drawdown % (0 = off)
 
     def to_dict(self) -> dict:
         return {
@@ -99,6 +102,8 @@ class RiskManagement:
             "tp_pct": self.tp_pct,
             "trail_pct": self.trail_pct,
             "strat_dir": self.strat_dir,
+            "risk_pct": self.risk_pct,
+            "max_dd_halt_pct": self.max_dd_halt_pct,
         }
 
     @classmethod
@@ -110,6 +115,8 @@ class RiskManagement:
             tp_pct=d.get("tp_pct", 5.0),
             trail_pct=d.get("trail_pct", 2.0),
             strat_dir=d.get("strat_dir", "Long Only"),
+            risk_pct=d.get("risk_pct", 1.0),
+            max_dd_halt_pct=d.get("max_dd_halt_pct", 0.0),
         )
 
 
