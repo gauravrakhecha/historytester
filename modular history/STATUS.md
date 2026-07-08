@@ -1,6 +1,6 @@
 # CURRENT STATUS — QuantDesk (modular) — resume doc
 
-**Last updated:** 2026-07-08 · **Current version:** **v7.6** · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
+**Last updated:** 2026-07-08 · **Current version:** **v7.7** · Handoff: [`RESUME_CONTEXT.md`](RESUME_CONTEXT.md) · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
 
 > **Read this first after a context reset.** It captures everything needed to continue without re-deriving state.
 
@@ -11,15 +11,15 @@ A modular rebuild of an independent app: the **Upstox "Unified Market Data Downl
 
 - **Original** single-file app: `D:\mbs\historydownloader\upstox_app.py` (3,207 lines) — **retained, never edited**.
 - **This (modular) app:** `D:\mbs\historydownloader\modular history\` → package `quantdesk/` (57 modules) + thin `app_main.py`.
-- **Build is complete and shipped through v7.6.** Not a work-in-progress refactor — it's a maintained product now.
+- **Build is complete and shipped through v7.7.** Not a work-in-progress refactor — it's a maintained product now.
 
 ## 2. Where it's published
 | Repo | Visibility | State | Purpose |
 |---|---|---|---|
-| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v7.6** | main repo (v3 monolith at root + `modular history/` subfolder) |
-| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v7.6** | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
+| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v7.7** | main repo (v3 monolith at root + `modular history/` subfolder) |
+| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v7.7** | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
 
-Tags: … → v7.0 (Feature Maturity: A+B+C) → v7.0.1 (perf) → v7.5 (Trustworthy Core pt.1: security + charges-in-equity) → **v7.6 (Trustworthy Core pt.2: risk module — risk-% sizing + max-DD circuit-breaker)**. Only `main` exists on historytester.
+Tags: … → v7.0.1 (perf) → v7.5 (Trustworthy Core pt.1: security + charges-in-equity) → v7.6 (pt.2 core: risk-% sizing + max-DD breaker) → **v7.7 (pt.2: ATR volatility stops + time stop)**. Only `main` exists on historytester.
 
 ## 3. How to run & verify
 ```bat
@@ -70,9 +70,13 @@ Python 3.12 (uv venv) · streamlit 1.58 · plotly 6.8 · bokeh 3.9.1 (transitive
 >   models/codegen/builder-UI/validation. `tests/test_risk.py` (10); full suite **105 green** + AppTest;
 >   real drive: breaker capped DD −11.8%→−10.0%. Deferred pt.2: ATR/breakeven/time stops in codegen,
 >   partial exits, Kelly sizing.
-> **Tasks 1 & 2 RELEASED as v7.5; Task 3 (core) RELEASED as v7.6.** Trustworthy Core milestone complete
-> (audit 4.8→~5.8-6.0). NEXT = Task 3 **pt.2** (ATR/breakeven/time stops in codegen, partial exits, Kelly
-> sizing) — IN PROGRESS — then **v8** the data agent ([`ROADMAP_v8_data_agent.md`](ROADMAP_v8_data_agent.md)).
+> **Tasks 1 & 2 RELEASED as v7.5; Task 3 (core) RELEASED as v7.6.**
+> - **✅ Task 3 pt.2 — RELEASED as v7.7:** ATR (volatility) stop mode + time stop (`max_bars_in_trade`) +
+>   ATR-risk sizing. `tests/test_risk.py` (13); full suite **108 green** + AppTest; drive: time stop capped
+>   holding 150→20 bars, ATR stop lifted return 1.8%→5.4%.
+> Trustworthy Core milestone COMPLETE (audit 4.8→~6.0). **NEXT = (a) Task 3 pt.3** (breakeven stops, partial
+> exits, Kelly sizing — pure helpers exist) **or (b) v8** the data agent
+> ([`ROADMAP_v8_data_agent.md`](ROADMAP_v8_data_agent.md)). Full handoff: [`RESUME_CONTEXT.md`](RESUME_CONTEXT.md).
 
 ### Earlier: v7 Feature Maturity RELEASED (A+B+C, v7.0; perf fix v7.0.1) → see [`ROADMAP_v7.md`](ROADMAP_v7.md)
 A multi-agent maturity audit confirmed the user's critique: **Backtester = usable, Optimizer = amateur,

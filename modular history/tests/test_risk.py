@@ -117,3 +117,39 @@ def test_default_sizing_unchanged_when_risk_features_off():
     from quantdesk.strategy.codegen import build_strategy_code
     code = build_strategy_code(_cfg())
     assert "risk_pct_qty(" not in code and "_peak_equity" not in code
+    assert "_risk_atr" not in code and "entry_bar" not in code
+
+
+# ----------------------------------------------------- Task 3 pt.2: ATR stops + time stops
+def _run(code):
+    from backtesting import Backtest
+    from quantdesk.data.loader import load_indexed
+    from quantdesk.strategy.compiler import compile_strategy
+    return Backtest(load_indexed(DATA).iloc[-3000:], compile_strategy(code),
+                    cash=100000, commission=0.0005, finalize_trades=True).run()
+
+
+def test_atr_stop_codegen_compiles_and_runs():
+    from quantdesk.strategy.codegen import build_strategy_code
+    code = build_strategy_code(_cfg(mode="ATR Stop Loss (Volatility)", atr_period=14, atr_stop_mult=2.0))
+    assert "_risk_atr" in code and "atr_stop(" in code
+    assert int(_run(code)["# Trades"]) > 0
+
+
+def test_atr_risk_sizing_codegen():
+    from quantdesk.strategy.codegen import build_strategy_code
+    code = build_strategy_code(_cfg(pos_size_type="Risk % of Equity per Trade",
+                                    mode="ATR Stop Loss (Volatility)", risk_pct=1.0, atr_stop_mult=2.0))
+    assert "atr_risk_qty(" in code                 # sizing uses the ATR-derived stop distance
+    assert int(_run(code)["# Trades"]) > 0
+
+
+def test_time_stop_codegen_caps_holding_period():
+    from quantdesk.strategy.codegen import build_strategy_code
+    code = build_strategy_code(_cfg(max_bars_in_trade=20))
+    assert "entry_bar" in code and "Time stop" in code
+    stats = _run(code)
+    assert int(stats["# Trades"]) > 0
+    # no trade is held longer than the cap (a couple bars of slack for the close bar)
+    dur = stats["_trades"]["ExitBar"] - stats["_trades"]["EntryBar"]
+    assert dur.max() <= 22

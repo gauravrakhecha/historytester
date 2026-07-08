@@ -5,7 +5,7 @@ brokers (Upstox, Zerodha, Dhan) and build + backtest + optimise + ML-mine algori
 strategies — **without writing a line of code**.
 
 > **Two editions in this repo:**
-> - **Modular Edition** (recommended, **latest = v7.6**): a fast, modular, tested package under
+> - **Modular Edition** (recommended, **latest = v7.7**): a fast, modular, tested package under
 >   [`modular history/`](modular%20history/). v4 refactored the monolith 1:1; **v5** added honest
 >   out-of-sample validation, real India charges, a data-quality gate and QuantStats; **v6** is an
 >   audit-hardening + speed + CSV/Parquet-saving release; **v7 "Feature Maturity"** makes the analytics
@@ -15,7 +15,7 @@ strategies — **without writing a line of code**.
 >   upload RCE and makes backtests **charge-accurate** — real India charges are now applied inside the
 >   simulated equity curve, so every metric/optimizer/walk-forward result is net of costs; **v7.6** adds
 >   professional **risk management** — risk-% position sizing (sized from the stop distance) and a
->   max-drawdown circuit-breaker. Start here for new work.
+>   max-drawdown circuit-breaker; **v7.7** adds ATR (volatility) stops and time stops. Start here for new work.
 > - **v3 — Single-file** (`upstox_app.py`): the original 3,207-line app, retained as reference.
 >
 > The v4 refactor was feature-for-feature identical to v3 (numeric parity harness); v5/v6/v7 then make

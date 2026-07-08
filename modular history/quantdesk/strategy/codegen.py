@@ -55,8 +55,10 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
     range_zones = cfg.range_zones or []
     rm = cfg.risk_management
     rm_mode = rm.mode
+    use_atr_stop = rm_mode == "ATR Stop Loss (Volatility)"
     sl_pct = rm.sl_pct if rm_mode == "Static % Stop Loss / Take Profit" else 0.0
-    tp_pct = rm.tp_pct if rm_mode == "Static % Stop Loss / Take Profit" else 0.0
+    # Take-profit may accompany a static-% OR an ATR stop
+    tp_pct = rm.tp_pct if rm_mode in ("Static % Stop Loss / Take Profit", "ATR Stop Loss (Volatility)") else 0.0
     trail_pct = rm.trail_pct if rm_mode == "Trailing Stop Loss (%)" else 0.0
     strat_dir = rm.strat_dir
     pos_size_type = cfg.pos_size_type
@@ -64,6 +66,9 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
     lot_size = cfg.lot_size
     risk_pct = getattr(rm, "risk_pct", 1.0)               # v7.1 Task 3: risk-% sizing
     max_dd_halt_pct = getattr(rm, "max_dd_halt_pct", 0.0)  # v7.1 Task 3: max-drawdown circuit breaker
+    atr_period = getattr(rm, "atr_period", 14)             # v7.1 Task 3 pt.2: ATR (volatility) stop
+    atr_stop_mult = getattr(rm, "atr_stop_mult", 2.0)
+    max_bars_in_trade = getattr(rm, "max_bars_in_trade", 0)  # v7.1 Task 3 pt.2: time stop
 
     has_zones = len(range_zones) > 0
 
@@ -111,6 +116,9 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
     for ind in indicators:
         code += emit_indicator(ind, src_map)
 
+    if use_atr_stop:  # ATR series for the volatility stop / ATR-risk sizing (v7.1 Task 3 pt.2)
+        code += f"        self._risk_atr = self.I(ta.volatility.average_true_range, pd.Series(self.data.High), pd.Series(self.data.Low), pd.Series(self.data.Close), {atr_period})\n"
+
     if rm_mode == "Trailing Stop Loss (%)" or has_zones:
         code += "        self._highest_since_entry = 0\n"
         code += "        self._lowest_since_entry = float('inf')\n"
@@ -138,6 +146,14 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
         code += "        self._peak_equity = max(getattr(self, '_peak_equity', self.equity), self.equity)\n"
         code += f"        if self.equity <= self._peak_equity * {1 - max_dd_halt_pct / 100.0}:\n"
         code += "            if self.position: self.position.close()\n"
+        code += "            self._prev_position_size = self.position.size\n"
+        code += "            return\n"
+
+    if max_bars_in_trade > 0:
+        # Time stop (v7.1 Task 3 pt.2): close a trade after a maximum number of bars held.
+        code += "        # Time stop\n"
+        code += f"        if self.position and self.trades and (len(self.data.Close) - self.trades[-1].entry_bar) >= {int(max_bars_in_trade)}:\n"
+        code += "            self.position.close()\n"
         code += "            self._prev_position_size = self.position.size\n"
         code += "            return\n"
 
@@ -174,7 +190,11 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
 
     # position sizing (v7.1 Task 3: + risk-% of equity, sized from the stop distance)
     if pos_size_type == "Risk % of Equity per Trade":
-        if sl_pct > 0:  # the static % stop gives the per-unit risk (stop distance)
+        if use_atr_stop:  # size from the ATR-derived stop distance (mult × ATR)
+            code += f"        _rq = atr_risk_qty(self.equity, {risk_pct}, self._risk_atr[-1], {atr_stop_mult}, self.lot_size)\n"
+            code += "        _cap = max(self.lot_size, int((self.equity * 0.99) // self.data.Close[-1]))\n"
+            code += "        _trade_size = max(self.lot_size, min(_rq, _cap))\n"
+        elif sl_pct > 0:  # the static % stop gives the per-unit risk (stop distance)
             code += f"        _stop_dist = self.data.Close[-1] * {sl_pct / 100.0}\n"
             code += f"        _rq = risk_pct_qty(self.equity, {risk_pct}, _stop_dist, self.lot_size)\n"
             # cap to what equity can actually afford (tight stops otherwise size beyond capital)
@@ -192,7 +212,15 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
 
     def get_sl_tp(is_short=False):
         sl_str, tp_str = "None", "None"
-        if rm_mode == "Static % Stop Loss / Take Profit" and (sl_pct > 0 or tp_pct > 0):
+        if use_atr_stop:  # volatility stop: entry -/+ mult*ATR (returns None until ATR warms up)
+            sl_str = f"atr_stop(self.data.Close[-1], self._risk_atr[-1], {atr_stop_mult}, {is_short})"
+            if tp_pct > 0:
+                tp_str = (
+                    f"self.data.Close[-1] * (1 - {tp_pct / 100})"
+                    if is_short
+                    else f"self.data.Close[-1] * (1 + {tp_pct / 100})"
+                )
+        elif rm_mode == "Static % Stop Loss / Take Profit" and (sl_pct > 0 or tp_pct > 0):
             if sl_pct > 0:
                 sl_str = (
                     f"self.data.Close[-1] * (1 + {sl_pct / 100})"

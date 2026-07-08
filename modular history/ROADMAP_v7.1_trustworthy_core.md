@@ -58,8 +58,13 @@ Lifts the audit's lowest dimension (Risk 3.5) out of fixed-₹/lot-only sizing.
 - **Verified:** `tests/test_risk.py` (10 — sizing/stop math, codegen→compile→backtest through the AST
   gate, default-unchanged parity). Full suite **105 green** + AppTest. Real drive: the breaker capped
   drawdown from −11.8% to exactly −10.0%; risk-% sizing runs.
-- **Deferred (Task 3 pt.2 / next):** wiring ATR/breakeven/time stops into codegen (helpers exist),
-  partial exits/scale-out, and Kelly-informed sizing.
+- **Task 3 pt.2 ✅ DONE (2026-07-08, local/unpushed):** wired **ATR (volatility) stops** into codegen as
+  a new RM mode "ATR Stop Loss (Volatility)" (`atr_stop` helper; stop = mult×ATR; also drives
+  `atr_risk_qty` sizing when paired with Risk-% mode) and a **time stop** (`max_bars_in_trade` — close a
+  trade after N bars). models/codegen/compiler-namespace/builder-UI/validation + preset round-trip.
+  `tests/test_risk.py` now 13; full suite **108 green** + AppTest. Real drive: time stop capped max
+  holding 150→20 bars; ATR stop lifted return 1.8%→5.4%; ATR-risk sizing runs.
+- **Still deferred (later):** breakeven stops, partial exits/scale-out, and Kelly-informed sizing.
 
 ## Release
 Ship Tasks 1–3 together as **v7.1** (charges-in-equity is the CHANGELOG headline); publish + sambhav

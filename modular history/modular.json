@@ -6,7 +6,7 @@
   "target_root": "D:/mbs/historydownloader/modular history",
   "verification_data": "D:/simpleton/historydownloader/data",
   "engine_decision": "keep backtesting.py",
-  "updated_at": "2026-07-08 21:08:41",
+  "updated_at": "2026-07-08 21:25:59",
   "status_legend": [
     "pending",
     "in_progress",
@@ -150,8 +150,8 @@
       "source_lines": "1442-1451, 1653-1661",
       "purpose": "StrategyConfig + safe_name + selectable_columns (fixes multi-output omission bug)",
       "verified": true,
-      "notes": "v7.1 Task3: RiskManagement +risk_pct +max_dd_halt_pct (round-trip)",
-      "updated_at": "2026-07-08 21:08:40"
+      "notes": "v7.1 Task3 pt.2: RM +ATR Stop mode + atr_period/atr_stop_mult/max_bars_in_trade",
+      "updated_at": "2026-07-08 21:25:58"
     },
     "quantdesk/data/loader.py": {
       "status": "verified",
@@ -285,8 +285,8 @@
         "tests/test_codegen.py"
       ],
       "verified": true,
-      "notes": "v7.1 Task3: Risk-%-of-equity sizing branch (from stop distance, capped) + max-DD circuit-breaker in next()",
-      "updated_at": "2026-07-08 21:08:40"
+      "notes": "v7.1 Task3 pt.2: ATR (volatility) stop mode + ATR-risk sizing + time stop (max_bars_in_trade) in next()",
+      "updated_at": "2026-07-08 21:25:58"
     },
     "quantdesk/strategy/compiler.py": {
       "status": "verified",
@@ -294,8 +294,8 @@
       "source_lines": "716-720",
       "purpose": "exec code -> Strategy class; cached by code-hash",
       "verified": true,
-      "notes": "v7.1 Task3: inject risk sizing helpers into exec namespace",
-      "updated_at": "2026-07-08 21:08:40"
+      "notes": "v7.1 Task3 pt.2: inject atr_stop into exec namespace",
+      "updated_at": "2026-07-08 21:25:59"
     },
     "quantdesk/strategy/presets.py": {
       "status": "verified",
@@ -468,8 +468,8 @@
       "source_lines": "1437-2266",
       "purpose": "No-Code Strategy Builder page",
       "verified": true,
-      "notes": "v7.1 Task3: Risk-% sizing option + risk_pct input + max-DD breaker input + preset persistence",
-      "updated_at": "2026-07-08 21:08:41"
+      "notes": "v7.1 Task3 pt.2: ATR stop controls + time-stop input + preset persistence",
+      "updated_at": "2026-07-08 21:25:59"
     },
     "quantdesk/ui/pages/plotter.py": {
       "status": "verified",
@@ -699,8 +699,8 @@
     "tests/test_risk.py": {
       "status": "verified",
       "verified": true,
-      "notes": "v7.1 Task3: 10 tests (sizing/stop math + codegen compile/run + parity)",
-      "updated_at": "2026-07-08 21:08:41"
+      "notes": "v7.1 Task3 pt.2: +3 tests (ATR stop, ATR-risk sizing, time-stop holding cap) = 13",
+      "updated_at": "2026-07-08 21:25:59"
     }
   },
   "feature_parity_checklist": {
@@ -1828,6 +1828,36 @@
       "ts": "2026-07-08 21:08:41",
       "agent": "orchestrator",
       "event": "v7.1 Task3 (risk module core: risk-% sizing + max-DD breaker) DONE — 105 tests green; breaker capped DD -11.8%->-10.0%; LOCAL/unpushed"
+    },
+    {
+      "ts": "2026-07-08 21:25:58",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/codegen.py -> verified (v7.1 Task3 pt.2: ATR (volatility) stop mode + ATR-risk sizing + time stop (max_bars_in_trade) in next())"
+    },
+    {
+      "ts": "2026-07-08 21:25:58",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/models.py -> verified (v7.1 Task3 pt.2: RM +ATR Stop mode + atr_period/atr_stop_mult/max_bars_in_trade)"
+    },
+    {
+      "ts": "2026-07-08 21:25:59",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/compiler.py -> verified (v7.1 Task3 pt.2: inject atr_stop into exec namespace)"
+    },
+    {
+      "ts": "2026-07-08 21:25:59",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/strategy_builder.py -> verified (v7.1 Task3 pt.2: ATR stop controls + time-stop input + preset persistence)"
+    },
+    {
+      "ts": "2026-07-08 21:25:59",
+      "agent": "orchestrator",
+      "event": "file:tests/test_risk.py -> verified (v7.1 Task3 pt.2: +3 tests (ATR stop, ATR-risk sizing, time-stop holding cap) = 13)"
+    },
+    {
+      "ts": "2026-07-08 21:25:59",
+      "agent": "orchestrator",
+      "event": "v7.1 Task3 pt.2 (ATR stops + time stops) DONE — 108 tests green; time stop capped hold 150->20 bars; LOCAL/unpushed (v7.7 candidate)"
     }
   ]
 }

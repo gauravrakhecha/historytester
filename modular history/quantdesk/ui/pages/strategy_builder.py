@@ -45,6 +45,9 @@ def _restore_from_preset(data: dict):
     st.session_state["strat_dir"] = rm.get("strat_dir", "Long Only")
     st.session_state["risk_pct"] = rm.get("risk_pct", 1.0)
     st.session_state["max_dd_halt_pct"] = rm.get("max_dd_halt_pct", 0.0)
+    st.session_state["atr_period"] = rm.get("atr_period", 14)
+    st.session_state["atr_stop_mult"] = rm.get("atr_stop_mult", 2.0)
+    st.session_state["max_bars_in_trade"] = rm.get("max_bars_in_trade", 0)
     # position sizing (preserved across save/load — was previously lost)
     st.session_state["pos_size_type"] = data.get("pos_size_type", "Fixed Value per Trade (₹) (Default)")
     st.session_state["fixed_pos_value"] = data.get("fixed_pos_value", 50000.0)
@@ -66,6 +69,9 @@ def _current_export() -> dict:
             "strat_dir": st.session_state.get("strat_dir", "Long Only"),
             "risk_pct": st.session_state.get("risk_pct", 1.0),
             "max_dd_halt_pct": st.session_state.get("max_dd_halt_pct", 0.0),
+            "atr_period": st.session_state.get("atr_period", 14),
+            "atr_stop_mult": st.session_state.get("atr_stop_mult", 2.0),
+            "max_bars_in_trade": st.session_state.get("max_bars_in_trade", 0),
         },
         "pos_size_type": st.session_state.get("pos_size_type", "Fixed Value per Trade (₹) (Default)"),
         "fixed_pos_value": st.session_state.get("fixed_pos_value", 50000.0),
@@ -344,14 +350,24 @@ def render(ctx):
 
     rm_mode = st.radio(
         "Exit / Risk Management Mode",
-        ["None (Use Sell Rules Only)", "Static % Stop Loss / Take Profit", "Trailing Stop Loss (%)", "Indicator-Based Exit (Advanced)"],
+        ["None (Use Sell Rules Only)", "Static % Stop Loss / Take Profit", "ATR Stop Loss (Volatility)",
+         "Trailing Stop Loss (%)", "Indicator-Based Exit (Advanced)"],
     )
     sl_pct = tp_pct = trail_pct = 0.0
+    atr_period = int(st.session_state.get("atr_period", 14))
+    atr_stop_mult = float(st.session_state.get("atr_stop_mult", 2.0))
     if rm_mode == "Static % Stop Loss / Take Profit":
         c1, c2 = st.columns(2)
         sl_pct = c1.number_input("Stop Loss %", value=st.session_state.get("sl_pct", 2.0), min_value=0.0, step=0.1)
         tp_pct = c2.number_input("Take Profit %", value=st.session_state.get("tp_pct", 5.0), min_value=0.0, step=0.1)
         st.info("SL/TP are fixed at entry price. Sell Rules ALSO trigger exits independently.")
+    elif rm_mode == "ATR Stop Loss (Volatility)":
+        c1, c2, c3 = st.columns(3)
+        atr_period = c1.number_input("ATR Period", value=atr_period, min_value=1, step=1)
+        atr_stop_mult = c2.number_input("ATR Stop ×", value=atr_stop_mult, min_value=0.1, step=0.1, help="Stop distance = this × ATR.")
+        tp_pct = c3.number_input("Take Profit % (0 = none)", value=st.session_state.get("tp_pct", 0.0), min_value=0.0, step=0.1)
+        st.info("Volatility-adaptive stop: the stop sits mult×ATR from entry (wider in volatile markets). "
+                "Pairs naturally with **Risk % of Equity** sizing — size then adapts to volatility.")
     elif rm_mode == "Trailing Stop Loss (%)":
         trail_pct = st.number_input("Trailing Stop %", value=st.session_state.get("trail_pct", 2.0), min_value=0.1, step=0.1)
         st.info("The stop follows the highest price since entry. Sell Rules ALSO trigger exits independently.")
@@ -362,13 +378,22 @@ def render(ctx):
     st.session_state["sl_pct"] = sl_pct
     st.session_state["tp_pct"] = tp_pct
     st.session_state["trail_pct"] = trail_pct
+    st.session_state["atr_period"] = atr_period
+    st.session_state["atr_stop_mult"] = atr_stop_mult
 
-    max_dd_halt_pct = st.number_input(
+    cbk1, cbk2 = st.columns(2)
+    max_dd_halt_pct = cbk1.number_input(
         "🛑 Max-Drawdown Circuit Breaker % (0 = off)",
         value=float(st.session_state.get("max_dd_halt_pct", 0.0)), min_value=0.0, max_value=100.0, step=1.0,
         help="Flatten any open position and stop taking new trades once equity falls this far below its running peak.",
     )
+    max_bars_in_trade = cbk2.number_input(
+        "⏱️ Time Stop — max bars per trade (0 = off)",
+        value=int(st.session_state.get("max_bars_in_trade", 0)), min_value=0, step=1,
+        help="Close any trade that is still open after this many bars.",
+    )
     st.session_state["max_dd_halt_pct"] = max_dd_halt_pct
+    st.session_state["max_bars_in_trade"] = max_bars_in_trade
 
     # --- Compile -----------------------------------------------------------
     st.subheader("Compile Strategy")

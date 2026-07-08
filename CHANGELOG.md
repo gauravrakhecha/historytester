@@ -1,5 +1,22 @@
 # Changelog
 
+## v7.7 — Risk management: ATR (volatility) stops + time stops (2026-07-08)
+
+Extends the v7.6 risk module with two more professional exit controls. **108 passing tests**, AppTest,
+real-data drive. Existing strategies are byte-identical (the new modes only emit when selected).
+
+- **ATR Stop Loss (Volatility)** — a new exit mode where the stop sits `mult × ATR` from entry (wider in
+  volatile markets, tighter in calm ones). It also drives **ATR-based risk-% sizing** (`atr_risk_qty`) when
+  paired with "Risk % of Equity" sizing, so the position size adapts to volatility.
+- **Time stop** (`max_bars_in_trade`) — closes any trade still open after N bars.
+- Wired through `models.RiskManagement`, `strategy/codegen.py`, the compiler namespace (the `atr_stop`
+  helper), the Strategy Builder UI, and `validation.py`, with preset round-trip. Real drive: the time stop
+  capped max holding from 150 → 20 bars; the ATR stop lifted an EMA-crossover's return 1.8% → 5.4%.
+
+*(Completes the post-audit "Trustworthy Core" milestone, 4.8→~6.0. Still deferred to a later pt.3: breakeven
+stops, partial exits/scale-out, Kelly-informed sizing. A full session handoff is in
+`modular history/RESUME_CONTEXT.md`.)*
+
 ## v7.6 — Trustworthy Core, part 2: professional risk management (2026-07-08)
 
 Completes the post-audit "Trustworthy Core" milestone by lifting the app's lowest-scored dimension —

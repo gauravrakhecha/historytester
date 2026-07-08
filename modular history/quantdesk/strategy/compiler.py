@@ -29,6 +29,7 @@ from quantdesk.strategy.indicators import (
 )
 from quantdesk.strategy.validation import assert_safe_ast
 from quantdesk.risk.sizing import atr_risk_qty, fixed_value_qty, percent_equity_qty, risk_pct_qty
+from quantdesk.risk.stops import atr_stop as _atr_stop
 
 _bytecode_cache: dict[int, object] = {}
 
@@ -51,7 +52,7 @@ def _namespace() -> dict:
         "pctile_rank_vec": pctile_rank_vec, "ret_n_vec": ret_n_vec,
         # v7.1 Task 3 — risk-based position sizing helpers (pure, unit-tested; see quantdesk.risk)
         "fixed_value_qty": fixed_value_qty, "percent_equity_qty": percent_equity_qty,
-        "risk_pct_qty": risk_pct_qty, "atr_risk_qty": atr_risk_qty,
+        "risk_pct_qty": risk_pct_qty, "atr_risk_qty": atr_risk_qty, "atr_stop": _atr_stop,
     }
 
 

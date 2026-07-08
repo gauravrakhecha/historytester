@@ -31,6 +31,7 @@ ZONE_ACTIONS = [
 RM_MODES = [
     "None (Use Sell Rules Only)",
     "Static % Stop Loss / Take Profit",
+    "ATR Stop Loss (Volatility)",
     "Trailing Stop Loss (%)",
     "Indicator-Based Exit (Advanced)",
 ]
@@ -94,6 +95,10 @@ class RiskManagement:
     # v7.1 Task 3 — professional risk controls
     risk_pct: float = 1.0        # % of equity risked per trade (for "Risk % of Equity" sizing)
     max_dd_halt_pct: float = 0.0  # circuit-breaker: flatten + block entries below this peak-drawdown % (0 = off)
+    # v7.1 Task 3 pt.2 — ATR (volatility) stops + time stop
+    atr_period: int = 14          # ATR length for the volatility stop / ATR-risk sizing
+    atr_stop_mult: float = 2.0    # stop distance = atr_stop_mult × ATR
+    max_bars_in_trade: int = 0    # time stop: close a trade after this many bars (0 = off)
 
     def to_dict(self) -> dict:
         return {
@@ -104,6 +109,9 @@ class RiskManagement:
             "strat_dir": self.strat_dir,
             "risk_pct": self.risk_pct,
             "max_dd_halt_pct": self.max_dd_halt_pct,
+            "atr_period": self.atr_period,
+            "atr_stop_mult": self.atr_stop_mult,
+            "max_bars_in_trade": self.max_bars_in_trade,
         }
 
     @classmethod
@@ -117,6 +125,9 @@ class RiskManagement:
             strat_dir=d.get("strat_dir", "Long Only"),
             risk_pct=d.get("risk_pct", 1.0),
             max_dd_halt_pct=d.get("max_dd_halt_pct", 0.0),
+            atr_period=d.get("atr_period", 14),
+            atr_stop_mult=d.get("atr_stop_mult", 2.0),
+            max_bars_in_trade=d.get("max_bars_in_trade", 0),
         )
 
 
