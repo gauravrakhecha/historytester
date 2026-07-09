@@ -6,7 +6,7 @@
   "target_root": "D:/mbs/historydownloader/modular history",
   "verification_data": "D:/simpleton/historydownloader/data",
   "engine_decision": "keep backtesting.py",
-  "updated_at": "2026-07-08 21:25:59",
+  "updated_at": "2026-07-09 23:44:11",
   "status_legend": [
     "pending",
     "in_progress",
@@ -106,8 +106,8 @@
       "source_lines": "41-64, 286-393",
       "purpose": "env/paths/constants/index presets/indicator-output suffix map",
       "verified": true,
-      "notes": "v7-B: ML_SAMPLE_FLOOR/ML_HOLDOUT_FRAC/ML_FDR_ALPHA defaults",
-      "updated_at": "2026-06-28 17:46:30"
+      "notes": "v7.8 Task 3 pt.3: breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing (+KELLY_MIN_TRADES)",
+      "updated_at": "2026-07-09 23:44:09"
     },
     "quantdesk/core/db.py": {
       "status": "verified",
@@ -150,8 +150,8 @@
       "source_lines": "1442-1451, 1653-1661",
       "purpose": "StrategyConfig + safe_name + selectable_columns (fixes multi-output omission bug)",
       "verified": true,
-      "notes": "v7.1 Task3 pt.2: RM +ATR Stop mode + atr_period/atr_stop_mult/max_bars_in_trade",
-      "updated_at": "2026-07-08 21:25:58"
+      "notes": "v7.8 Task 3 pt.3: breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing (RiskManagement +breakeven_trigger_pct/partial_exit_pct/partial_trigger_pct)",
+      "updated_at": "2026-07-09 23:44:09"
     },
     "quantdesk/data/loader.py": {
       "status": "verified",
@@ -285,8 +285,8 @@
         "tests/test_codegen.py"
       ],
       "verified": true,
-      "notes": "v7.1 Task3 pt.2: ATR (volatility) stop mode + ATR-risk sizing + time stop (max_bars_in_trade) in next()",
-      "updated_at": "2026-07-08 21:25:58"
+      "notes": "v7.8 Task 3 pt.3: breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing (breakeven/partial/Kelly emission blocks)",
+      "updated_at": "2026-07-09 23:44:10"
     },
     "quantdesk/strategy/compiler.py": {
       "status": "verified",
@@ -294,8 +294,8 @@
       "source_lines": "716-720",
       "purpose": "exec code -> Strategy class; cached by code-hash",
       "verified": true,
-      "notes": "v7.1 Task3 pt.2: inject atr_stop into exec namespace",
-      "updated_at": "2026-07-08 21:25:59"
+      "notes": "v7.8 Task 3 pt.3: breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing (namespace: breakeven_stop/kelly_fraction/half_kelly_fraction)",
+      "updated_at": "2026-07-09 23:44:10"
     },
     "quantdesk/strategy/presets.py": {
       "status": "verified",
@@ -468,8 +468,8 @@
       "source_lines": "1437-2266",
       "purpose": "No-Code Strategy Builder page",
       "verified": true,
-      "notes": "v7.1 Task3 pt.2: ATR stop controls + time-stop input + preset persistence",
-      "updated_at": "2026-07-08 21:25:59"
+      "notes": "v7.8 Task 3 pt.3: breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing (Kelly pos-size options + breakeven/scale-out inputs + preset round-trip)",
+      "updated_at": "2026-07-09 23:44:10"
     },
     "quantdesk/ui/pages/plotter.py": {
       "status": "verified",
@@ -663,8 +663,8 @@
     "quantdesk/strategy/validation.py": {
       "status": "verified",
       "verified": true,
-      "notes": "v7.1 Task1 security: assert_safe_ast (compiler AST sandbox) + validate_preset (upload/load guard) — closes preset-upload RCE",
-      "updated_at": "2026-07-08 08:56:29"
+      "notes": "v7.8 Task 3 pt.3: breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing (numeric-validate 3 new RM fields)",
+      "updated_at": "2026-07-09 23:44:10"
     },
     "tests/test_security.py": {
       "status": "verified",
@@ -699,8 +699,8 @@
     "tests/test_risk.py": {
       "status": "verified",
       "verified": true,
-      "notes": "v7.1 Task3 pt.2: +3 tests (ATR stop, ATR-risk sizing, time-stop holding cap) = 13",
-      "updated_at": "2026-07-08 21:25:59"
+      "notes": "v7.8 Task 3 pt.3: breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing (17 tests: +breakeven/partial/kelly/kelly-sizes-up + parity lock)",
+      "updated_at": "2026-07-09 23:44:11"
     }
   },
   "feature_parity_checklist": {
@@ -1858,6 +1858,41 @@
       "ts": "2026-07-08 21:25:59",
       "agent": "orchestrator",
       "event": "v7.1 Task3 pt.2 (ATR stops + time stops) DONE — 108 tests green; time stop capped hold 150->20 bars; LOCAL/unpushed (v7.7 candidate)"
+    },
+    {
+      "ts": "2026-07-09 23:44:09",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/config.py -> verified (v7.8 Task 3 pt.3: breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing (+KELLY_MIN_TRADES))"
+    },
+    {
+      "ts": "2026-07-09 23:44:09",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/models.py -> verified (v7.8 Task 3 pt.3: breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing (RiskManagement +breakeven_trigger_pct/partial_exit_pct/partial_trigger_pct))"
+    },
+    {
+      "ts": "2026-07-09 23:44:10",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/codegen.py -> verified (v7.8 Task 3 pt.3: breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing (breakeven/partial/Kelly emission blocks))"
+    },
+    {
+      "ts": "2026-07-09 23:44:10",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/compiler.py -> verified (v7.8 Task 3 pt.3: breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing (namespace: breakeven_stop/kelly_fraction/half_kelly_fraction))"
+    },
+    {
+      "ts": "2026-07-09 23:44:10",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/strategy/validation.py -> verified (v7.8 Task 3 pt.3: breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing (numeric-validate 3 new RM fields))"
+    },
+    {
+      "ts": "2026-07-09 23:44:10",
+      "agent": "orchestrator",
+      "event": "file:quantdesk/ui/pages/strategy_builder.py -> verified (v7.8 Task 3 pt.3: breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing (Kelly pos-size options + breakeven/scale-out inputs + preset round-trip))"
+    },
+    {
+      "ts": "2026-07-09 23:44:11",
+      "agent": "orchestrator",
+      "event": "file:tests/test_risk.py -> verified (v7.8 Task 3 pt.3: breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing (17 tests: +breakeven/partial/kelly/kelly-sizes-up + parity lock))"
     }
   ]
 }

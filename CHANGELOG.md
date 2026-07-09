@@ -1,5 +1,36 @@
 # Changelog
 
+## v7.8 — Risk management complete: breakeven stops, partial exits, adaptive Kelly sizing (2026-07-09)
+
+Finishes the risk-management chapter of the post-audit "Trustworthy Core" milestone (Task 3 pt.3 — the
+last deferred items). **112 passing tests**, AppTest (all 13 pages + a UI backtest), and real-data +
+synthetic drives. All three controls are opt-in and default-OFF — existing strategies are byte-identical
+(the parity test now locks this).
+
+- **Breakeven stop** (`breakeven_trigger_pct`) — once an open trade moves the trigger % in your favour,
+  its stop is ratcheted up to the entry price (never loosened; guarded so the new stop always sits on the
+  safe side of the current close). A winning trade can no longer turn into a loss. Works alongside the
+  Static-% and ATR stop modes.
+- **Partial exit / scale-out** (`partial_exit_pct` + `partial_trigger_pct`) — banks a chosen fraction of
+  the position at a first target (`Position.close(portion=...)`, once per trade) and lets the remainder
+  run with its SL/TP intact. Composes with the breakeven stop (bank half, move the rest to breakeven).
+  Real drive: split 55 → 60 trade records and cut max drawdown −7.82% → −7.60%.
+- **Adaptive Kelly sizing** — two new Position-Sizing modes, **"Half-Kelly (Adaptive)"** and **"Full
+  Kelly (Adaptive)"**, that estimate win-rate × payoff from the strategy's *own* closed trades as the
+  backtest runs and deploy that Kelly fraction of equity. Engages only after `KELLY_MIN_TRADES` (20)
+  trades have closed (fixed-₹ warm-up before that); a non-positive measured edge sizes at minimum — Kelly
+  only sizes UP once a real edge is observed. Synthetic drive: Half-Kelly compounded a positive-edge
+  strategy to **+42.7%** while Full-Kelly's variance left the *same* edge at **−0.5%** — exactly the
+  aggression the UI caption warns about (Half-Kelly is the recommended default).
+- Wired through `config.py`, `models.RiskManagement`, `strategy/codegen.py`, the compiler namespace
+  (`breakeven_stop` / `kelly_fraction` / `half_kelly_fraction` — pure, unit-tested helpers), the Strategy
+  Builder UI ("Advanced trade management" row + new sizing options), and `validation.py`, with full
+  preset round-trip.
+
+*(Task 3 is now COMPLETE — no risk items remain deferred. The "Trustworthy Core" milestone, audit
+4.8 → ~6.0, is fully shipped. Next: v8, the Autonomous Data Agent — see
+`modular history/ROADMAP_v8_data_agent.md`. Session handoff: `modular history/RESUME_CONTEXT.md`.)*
+
 ## v7.7 — Risk management: ATR (volatility) stops + time stops (2026-07-08)
 
 Extends the v7.6 risk module with two more professional exit controls. **108 passing tests**, AppTest,

@@ -178,7 +178,8 @@ def validate_preset(data: Any) -> dict:
     if rm.get("mode", RM_MODES[0]) not in RM_MODES:
         raise PresetValidationError(f"risk_management.mode {rm.get('mode')!r} is invalid.")
     for f in ("sl_pct", "tp_pct", "trail_pct", "risk_pct", "max_dd_halt_pct",
-              "atr_period", "atr_stop_mult", "max_bars_in_trade"):
+              "atr_period", "atr_stop_mult", "max_bars_in_trade",
+              "breakeven_trigger_pct", "partial_exit_pct", "partial_trigger_pct"):
         if f in rm:
             _num(rm.get(f), f"risk_management.{f}")
     if rm.get("strat_dir", STRAT_DIRECTIONS[0]) not in STRAT_DIRECTIONS:

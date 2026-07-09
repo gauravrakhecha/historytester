@@ -1,10 +1,10 @@
 # RESUME_CONTEXT — QuantDesk handoff (read this first)
 
-**As of:** 2026-07-08 · **Current version: v7.7** (published) · Companions: [`STATUS.md`](STATUS.md) ·
-[`progress.json`](progress.json) · [`modular.json`](modular.json)
+**As of:** 2026-07-09 · **Current version: v7.8** (published) · Companions:
+[`STATUS.md`](STATUS.md) · [`progress.json`](progress.json) · [`modular.json`](modular.json)
 
 > One-file handoff so a fresh session continues without re-deriving state. Everything below is
-> verified and on GitHub unless it says "local/unpushed" (nothing is unpushed right now — v7.7 is fully shipped).
+> verified and on GitHub unless it says "local/unpushed" (nothing is unpushed right now — v7.8 is fully shipped).
 
 ---
 
@@ -15,9 +15,9 @@ Package `quantdesk/` (~60 modules) + thin `app_main.py`. Engine = **backtesting.
 App dir: `D:\mbs\historydownloader\modular history`. Original monolith `upstox_app.py` retained, never edited.
 
 ## 2. Published state (GitHub)
-- **historytester** (private): `main`, tag **v7.7**, GitHub release Latest. Layout: root = v3 monolith,
+- **historytester** (private): `main`, tag **v7.8**, GitHub release Latest. Layout: root = v3 monolith,
   `modular history/` subfolder = this app.
-- **sambhav** (private, collaborator repo): synced to **v7.7**.
+- **sambhav** (private, collaborator repo): synced to **v7.8**.
 - Publish flow + sambhav sync: `progress.json → how_to_publish_new_version` / `repos.sambhav.sync_procedure`.
   Commits authored as `gauravrakhecha <gauravrakhecha@gmail.com>` (set repo-local before committing); end
   commits with `Co-Authored-By: Claude Opus 4.8`. Always secret-scan (gho_/eyJ/-----BEGIN; no .env/.db/pycache).
@@ -50,16 +50,26 @@ the top wrong/dangerous items:
   injected into the compiler namespace) + **"Risk % of Equity per Trade"** sizing + **max-drawdown circuit-breaker**.
 - **v7.7 — Trustworthy Core pt.2 (task 3 pt.2):** **ATR (volatility) stop** mode + **time stop**
   (`max_bars_in_trade`) + ATR-risk sizing. Drive: time stop capped hold 150→20 bars; ATR stop lifted return 1.8%→5.4%.
+- **v7.8 — Trustworthy Core pt.3 (task 3 FINISHED):** the last three risk controls, all
+  opt-in / default-OFF (parity locked):
+  - **Breakeven stop** (`breakeven_trigger_pct`) — ratchets the open `Trade.sl` up to entry once price
+    moves the trigger% in favour (guarded so it can't fill instantly). Drive: altered exits vs SL/TP alone.
+  - **Partial exit / scale-out** (`partial_exit_pct` + `partial_trigger_pct`) — banks a fraction via
+    `Position.close(portion=)`, once per trade; remainder keeps its SL/TP; composes with breakeven. Drive:
+    split 55→60 trade records, cut MaxDD −7.82→−7.60.
+  - **Adaptive Kelly sizing** — two `pos_size_type` modes "Half-Kelly (Adaptive)" / "Full Kelly (Adaptive)"
+    sizing from the strategy's own `closed_trades` (win-rate × payoff), engaging after `config.KELLY_MIN_TRADES`
+    (20) closes. Drive: Half-Kelly compounded a +edge synthetic to +42.7% while Full-Kelly's variance left
+    the same edge at −0.5%; correctly refuses to size a −edge strategy to minimum lot.
+  - Wired through config/models/codegen/compiler-namespace/validation/builder-UI + preset round-trip;
+    drove the actual builder widgets (AppTest) → all markers reach generated code. `tests/test_risk.py` now 17.
 
 Net effect: audit **4.8 → ~6.0**. All wired through models/codegen/compiler-namespace/builder-UI/validation;
 existing strategies are byte-identical (parity preserved). Test files: `tests/test_security.py` (21),
-`tests/test_charges_in_equity.py` (7), `tests/test_risk.py` (13).
+`tests/test_charges_in_equity.py` (7), `tests/test_risk.py` (17). Full suite **112 green** + AppTest.
 
-## 5. NEXT — pick one (both planned, nothing started)
-- **(a) Task 3 pt.3** (finish risk): **breakeven stops**, **partial exits / scale-out**, **Kelly-informed
-  sizing**. The pure helpers `stops.breakeven_stop` and `sizing.kelly_fraction/half_kelly_fraction` already
-  exist and are tested — mostly codegen wiring (mirror the ATR-stop pattern in `strategy/codegen.py`).
-- **(b) v8 — Autonomous Data Agent** ([`ROADMAP_v8_data_agent.md`](ROADMAP_v8_data_agent.md)): auto-download
+## 5. NEXT (Task 3 / Trustworthy Core fully DONE & shipped as v7.8)
+- **v8 — Autonomous Data Agent** ([`ROADMAP_v8_data_agent.md`](ROADMAP_v8_data_agent.md)): auto-download
   + multi-timeframe build on a schedule, respecting API rate limits. Phases 0–2 (token store + rate limiter +
   watermarks → incremental download + TF ladder → runner/CLI/Task-Scheduler) = v8.0. Central constraint:
   broker tokens expire daily (Dhan excepted) — design around a one-click daily re-login.

@@ -28,8 +28,16 @@ from quantdesk.strategy.indicators import (
     zscore_vec,
 )
 from quantdesk.strategy.validation import assert_safe_ast
-from quantdesk.risk.sizing import atr_risk_qty, fixed_value_qty, percent_equity_qty, risk_pct_qty
+from quantdesk.risk.sizing import (
+    atr_risk_qty,
+    fixed_value_qty,
+    half_kelly_fraction,
+    kelly_fraction,
+    percent_equity_qty,
+    risk_pct_qty,
+)
 from quantdesk.risk.stops import atr_stop as _atr_stop
+from quantdesk.risk.stops import breakeven_stop as _breakeven_stop
 
 _bytecode_cache: dict[int, object] = {}
 
@@ -53,6 +61,9 @@ def _namespace() -> dict:
         # v7.1 Task 3 — risk-based position sizing helpers (pure, unit-tested; see quantdesk.risk)
         "fixed_value_qty": fixed_value_qty, "percent_equity_qty": percent_equity_qty,
         "risk_pct_qty": risk_pct_qty, "atr_risk_qty": atr_risk_qty, "atr_stop": _atr_stop,
+        # v7.8 Task 3 pt.3 — breakeven stop + adaptive Kelly sizing helpers
+        "breakeven_stop": _breakeven_stop,
+        "kelly_fraction": kelly_fraction, "half_kelly_fraction": half_kelly_fraction,
     }
 
 

@@ -1,6 +1,6 @@
 # CURRENT STATUS — QuantDesk (modular) — resume doc
 
-**Last updated:** 2026-07-08 · **Current version:** **v7.7** · Handoff: [`RESUME_CONTEXT.md`](RESUME_CONTEXT.md) · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
+**Last updated:** 2026-07-09 · **Current version:** **v7.8** · Handoff: [`RESUME_CONTEXT.md`](RESUME_CONTEXT.md) · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
 
 > **Read this first after a context reset.** It captures everything needed to continue without re-deriving state.
 
@@ -16,10 +16,10 @@ A modular rebuild of an independent app: the **Upstox "Unified Market Data Downl
 ## 2. Where it's published
 | Repo | Visibility | State | Purpose |
 |---|---|---|---|
-| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v7.7** | main repo (v3 monolith at root + `modular history/` subfolder) |
-| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v7.7** | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
+| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v7.8** | main repo (v3 monolith at root + `modular history/` subfolder) |
+| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v7.8** | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
 
-Tags: … → v7.0.1 (perf) → v7.5 (Trustworthy Core pt.1: security + charges-in-equity) → v7.6 (pt.2 core: risk-% sizing + max-DD breaker) → **v7.7 (pt.2: ATR volatility stops + time stop)**. Only `main` exists on historytester.
+Tags: … → v7.0.1 (perf) → v7.5 (Trustworthy Core pt.1: security + charges-in-equity) → v7.6 (pt.2 core: risk-% sizing + max-DD breaker) → v7.7 (pt.2: ATR volatility stops + time stop) → **v7.8 (pt.3: breakeven stop + partial exit/scale-out + adaptive Kelly sizing — Task 3 complete)**. Only `main` exists on historytester.
 
 ## 3. How to run & verify
 ```bat
@@ -74,8 +74,16 @@ Python 3.12 (uv venv) · streamlit 1.58 · plotly 6.8 · bokeh 3.9.1 (transitive
 > - **✅ Task 3 pt.2 — RELEASED as v7.7:** ATR (volatility) stop mode + time stop (`max_bars_in_trade`) +
 >   ATR-risk sizing. `tests/test_risk.py` (13); full suite **108 green** + AppTest; drive: time stop capped
 >   holding 150→20 bars, ATR stop lifted return 1.8%→5.4%.
-> Trustworthy Core milestone COMPLETE (audit 4.8→~6.0). **NEXT = (a) Task 3 pt.3** (breakeven stops, partial
-> exits, Kelly sizing — pure helpers exist) **or (b) v8** the data agent
+> - **✅ Task 3 pt.3 — RELEASED as v7.8 (2026-07-09):** the final risk controls, all opt-in /
+>   default-OFF (parity locked): **breakeven stop** (ratchet open `Trade.sl`→entry after +trigger%), **partial
+>   exit / scale-out** (`Position.close(portion=)`, once per trade, composes with breakeven), and **adaptive
+>   Half/Full-Kelly sizing** (from the strategy's own `closed_trades`, engaging after `KELLY_MIN_TRADES`=20).
+>   Wired through config/models/codegen/compiler-namespace/validation/builder-UI + preset round-trip; drove
+>   the real builder widgets (AppTest) → all markers reach generated code. `tests/test_risk.py` (17); full
+>   suite **112 green** + AppTest. Drive: partial split 55→60 trades & cut MaxDD −7.82→−7.60; Half-Kelly +42.7%
+>   vs Full-Kelly −0.5% on the same synthetic edge; Kelly refuses to size a −edge strategy.
+> **Task 3 COMPLETE.** Trustworthy Core milestone COMPLETE (audit 4.8→~6.0) and fully shipped through
+> **v7.8**. **NEXT = v8** the Autonomous Data Agent
 > ([`ROADMAP_v8_data_agent.md`](ROADMAP_v8_data_agent.md)). Full handoff: [`RESUME_CONTEXT.md`](RESUME_CONTEXT.md).
 
 ### Earlier: v7 Feature Maturity RELEASED (A+B+C, v7.0; perf fix v7.0.1) → see [`ROADMAP_v7.md`](ROADMAP_v7.md)

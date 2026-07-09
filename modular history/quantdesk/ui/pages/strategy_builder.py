@@ -13,6 +13,7 @@ import json
 
 import streamlit as st
 
+from quantdesk import config as cfg_mod
 from quantdesk.strategy import presets
 from quantdesk.strategy.codegen import build_strategy_code
 from quantdesk.strategy.indicators import INDICATOR_PARAM_SPECS, INDICATOR_TYPES
@@ -48,6 +49,9 @@ def _restore_from_preset(data: dict):
     st.session_state["atr_period"] = rm.get("atr_period", 14)
     st.session_state["atr_stop_mult"] = rm.get("atr_stop_mult", 2.0)
     st.session_state["max_bars_in_trade"] = rm.get("max_bars_in_trade", 0)
+    st.session_state["breakeven_trigger_pct"] = rm.get("breakeven_trigger_pct", 0.0)
+    st.session_state["partial_exit_pct"] = rm.get("partial_exit_pct", 0.0)
+    st.session_state["partial_trigger_pct"] = rm.get("partial_trigger_pct", 0.0)
     # position sizing (preserved across save/load — was previously lost)
     st.session_state["pos_size_type"] = data.get("pos_size_type", "Fixed Value per Trade (₹) (Default)")
     st.session_state["fixed_pos_value"] = data.get("fixed_pos_value", 50000.0)
@@ -72,6 +76,9 @@ def _current_export() -> dict:
             "atr_period": st.session_state.get("atr_period", 14),
             "atr_stop_mult": st.session_state.get("atr_stop_mult", 2.0),
             "max_bars_in_trade": st.session_state.get("max_bars_in_trade", 0),
+            "breakeven_trigger_pct": st.session_state.get("breakeven_trigger_pct", 0.0),
+            "partial_exit_pct": st.session_state.get("partial_exit_pct", 0.0),
+            "partial_trigger_pct": st.session_state.get("partial_trigger_pct", 0.0),
         },
         "pos_size_type": st.session_state.get("pos_size_type", "Fixed Value per Trade (₹) (Default)"),
         "fixed_pos_value": st.session_state.get("fixed_pos_value", 50000.0),
@@ -325,10 +332,13 @@ def render(ctx):
 
     pos_size_type = st.radio(
         "Position Sizing",
-        ["Fixed Value per Trade (₹) (Default)", "Compound 100% Equity", "Risk % of Equity per Trade"],
+        ["Fixed Value per Trade (₹) (Default)", "Compound 100% Equity", "Risk % of Equity per Trade",
+         "Half-Kelly (Adaptive)", "Full Kelly (Adaptive)"],
         horizontal=True,
         help="Fixed Value caps capital per trade. 100% Equity compounds your whole capital each trade. "
-             "Risk % sizes each trade so a stop-out loses a fixed % of equity (professional sizing — needs a Stop Loss).",
+             "Risk % sizes each trade so a stop-out loses a fixed % of equity (professional sizing — needs a Stop Loss). "
+             "Kelly sizes from THIS strategy's own realized win-rate & payoff as the backtest runs (Half-Kelly is the "
+             "safer, lower-swing default most desks use).",
     )
     fixed_pos_value = 0.0
     risk_pct = st.session_state.get("risk_pct", 1.0)
@@ -341,6 +351,12 @@ def render(ctx):
         )
         if st.session_state.get("rm_mode") != "Static % Stop Loss / Take Profit":
             st.caption("⚠️ Risk-% sizing needs a stop distance — set **Exit / Risk Management Mode → Static % Stop Loss / Take Profit** below (otherwise it falls back to a fixed ₹ size).")
+    elif pos_size_type in ("Half-Kelly (Adaptive)", "Full Kelly (Adaptive)"):
+        st.caption(
+            f"📈 Adaptive Kelly: sizes from your strategy's realized edge, engaging after "
+            f"{cfg_mod.KELLY_MIN_TRADES} trades have closed (a fixed ₹ size is used during that warm-up). "
+            "Full Kelly is aggressive and can swing hard — Half-Kelly is the recommended default."
+        )
     lot_size = st.number_input("Instrument Lot Size (Use 1 for Equity)", value=st.session_state.get("lot_size", 1), min_value=1, step=1, help="Options and Futures trade in fixed lot multiples.")
 
     st.session_state["pos_size_type"] = pos_size_type
@@ -394,6 +410,28 @@ def render(ctx):
     )
     st.session_state["max_dd_halt_pct"] = max_dd_halt_pct
     st.session_state["max_bars_in_trade"] = max_bars_in_trade
+
+    st.markdown("**Advanced trade management** (optional — leave at 0 to disable)")
+    be_col, pe_col1, pe_col2 = st.columns(3)
+    breakeven_trigger_pct = be_col.number_input(
+        "🔒 Breakeven trigger % (0 = off)",
+        value=float(st.session_state.get("breakeven_trigger_pct", 0.0)), min_value=0.0, step=0.1,
+        help="Once price moves this % in your favour, the stop is moved up to your entry price — a winning "
+             "trade can no longer turn into a loss. Works alongside your Stop Loss mode above.",
+    )
+    partial_exit_pct = pe_col1.number_input(
+        "✂️ Scale-out: % of position to bank (0 = off)",
+        value=float(st.session_state.get("partial_exit_pct", 0.0)), min_value=0.0, max_value=99.0, step=5.0,
+        help="Close this fraction of the position at the first target and let the rest run for a bigger move.",
+    )
+    partial_trigger_pct = pe_col2.number_input(
+        "✂️ Scale-out trigger % (favourable move)",
+        value=float(st.session_state.get("partial_trigger_pct", 0.0)), min_value=0.0, step=0.1,
+        help="The favourable move (%) at which the partial is banked. Scale-out needs BOTH this and the % to bank.",
+    )
+    st.session_state["breakeven_trigger_pct"] = breakeven_trigger_pct
+    st.session_state["partial_exit_pct"] = partial_exit_pct
+    st.session_state["partial_trigger_pct"] = partial_trigger_pct
 
     # --- Compile -----------------------------------------------------------
     st.subheader("Compile Strategy")

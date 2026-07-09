@@ -73,6 +73,13 @@ ML_SAMPLE_FLOOR: int = int(os.getenv("QUANTDESK_ML_SAMPLE_FLOOR", "30"))
 ML_HOLDOUT_FRAC: float = float(os.getenv("QUANTDESK_ML_HOLDOUT_FRAC", "0.3"))
 ML_FDR_ALPHA: float = float(os.getenv("QUANTDESK_ML_FDR_ALPHA", "0.10"))
 
+# --- RISK / POSITION SIZING (v7.8 Task 3 pt.3) -----------------------------
+# Adaptive Kelly sizing estimates win-rate and payoff from the strategy's OWN
+# realized trades as the backtest progresses. It only engages once at least this
+# many trades have closed — before that a tiny sample would give a wild, unstable
+# fraction, so sizing falls back to the Fixed-Value default during warmup.
+KELLY_MIN_TRADES: int = int(os.getenv("QUANTDESK_KELLY_MIN_TRADES", "20"))
+
 # --- BROKER API (read from .env; never hard-coded) -------------------------
 UPSTOX_API_KEY = os.getenv("UPSTOX_API_KEY", "")
 UPSTOX_API_SECRET = os.getenv("UPSTOX_API_SECRET", "")

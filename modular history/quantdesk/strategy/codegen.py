@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Dict
 
+from quantdesk.config import KELLY_MIN_TRADES
 from quantdesk.strategy.indicators import emit_indicator
 from quantdesk.strategy.models import StrategyConfig, safe_name
 
@@ -69,6 +70,13 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
     atr_period = getattr(rm, "atr_period", 14)             # v7.1 Task 3 pt.2: ATR (volatility) stop
     atr_stop_mult = getattr(rm, "atr_stop_mult", 2.0)
     max_bars_in_trade = getattr(rm, "max_bars_in_trade", 0)  # v7.1 Task 3 pt.2: time stop
+    # v7.8 Task 3 pt.3 — breakeven stop + partial exit / scale-out
+    breakeven_trigger_pct = getattr(rm, "breakeven_trigger_pct", 0.0)
+    partial_exit_pct = getattr(rm, "partial_exit_pct", 0.0)
+    partial_trigger_pct = getattr(rm, "partial_trigger_pct", 0.0)
+    has_breakeven = breakeven_trigger_pct > 0
+    has_partial = partial_exit_pct > 0 and partial_trigger_pct > 0
+    is_kelly = pos_size_type in ("Half-Kelly (Adaptive)", "Full Kelly (Adaptive)")
 
     has_zones = len(range_zones) > 0
 
@@ -103,6 +111,8 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
     code += "        self.dividends_earned = 0.0\n"
     code += "        self.rights_premium_earned = 0.0\n"
     code += "        self._prev_position_size = 0\n"
+    if has_partial:  # v7.8: one scale-out per trade — reset when flat (see next())
+        code += "        self._scaled_out = False\n"
 
     src_map: Dict[str, str] = {
         "Close": "self.data.Close", "Open": "self.data.Open", "High": "self.data.High",
@@ -139,6 +149,9 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
     code += "                self.rights_premium_earned += earned\n"
     code += "                self._broker._cash += earned\n"
 
+    if has_partial:  # reset the one-scale-out-per-trade flag whenever we are flat
+        code += "        if not self.position: self._scaled_out = False\n"
+
     if max_dd_halt_pct > 0:
         # Max-drawdown circuit breaker (v7.1 Task 3): once equity falls this far below its running
         # peak, flatten any position and block new entries for the rest of the run.
@@ -156,6 +169,38 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
         code += "            self.position.close()\n"
         code += "            self._prev_position_size = self.position.size\n"
         code += "            return\n"
+
+    if has_partial:
+        # Partial exit / scale-out (v7.8 Task 3 pt.3): once the OPEN trade has moved the trigger%
+        # in favour, bank a fraction of the position and let the rest run. Once per trade (the
+        # _scaled_out flag, reset when flat). Any native SL/TP carries to the remainder.
+        frac = min(max(partial_exit_pct / 100.0, 0.01), 0.99)  # keep it a genuine partial (0<frac<1)
+        code += "        # Partial exit / scale-out\n"
+        code += "        if self.position and self.trades and not self._scaled_out:\n"
+        code += "            _pe_entry = self.trades[-1].entry_price\n"
+        code += f"            if self.position.is_long and self.data.High[-1] >= _pe_entry * {1 + partial_trigger_pct / 100.0}:\n"
+        code += f"                self.position.close(portion={frac})\n"
+        code += "                self._scaled_out = True\n"
+        code += f"            elif self.position.is_short and self.data.Low[-1] <= _pe_entry * {1 - partial_trigger_pct / 100.0}:\n"
+        code += f"                self.position.close(portion={frac})\n"
+        code += "                self._scaled_out = True\n"
+
+    if has_breakeven:
+        # Breakeven stop (v7.8 Task 3 pt.3): once the OPEN trade has moved the trigger% in favour,
+        # ratchet its stop up to the entry price (never loosen). Guarded so the new stop always sits
+        # on the safe side of the current close (a long's stop below it), so it can't fill instantly.
+        code += "        # Breakeven stop\n"
+        code += "        if self.position and self.trades:\n"
+        code += "            _be_t = self.trades[-1]\n"
+        code += "            _be_entry = _be_t.entry_price\n"
+        code += f"            if self.position.is_long and self.data.High[-1] >= _be_entry * {1 + breakeven_trigger_pct / 100.0}:\n"
+        code += "                _be = breakeven_stop(_be_entry, False)\n"
+        code += "                if _be is not None and _be < self.data.Close[-1] and (_be_t.sl is None or _be_t.sl < _be):\n"
+        code += "                    _be_t.sl = _be\n"
+        code += f"            elif self.position.is_short and self.data.Low[-1] <= _be_entry * {1 - breakeven_trigger_pct / 100.0}:\n"
+        code += "                _be = breakeven_stop(_be_entry, True)\n"
+        code += "                if _be is not None and _be > self.data.Close[-1] and (_be_t.sl is None or _be_t.sl > _be):\n"
+        code += "                    _be_t.sl = _be\n"
 
     buy_cond = _gen_logic(buy_rules, "buy", src_map)
     sell_cond = _gen_logic(sell_rules, "sell", src_map)
@@ -202,6 +247,26 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
             code += "        _trade_size = max(self.lot_size, min(_rq, _cap))\n"
         else:  # no stop distance available -> fall back to a fixed notional
             code += f"        _trade_size = fixed_value_qty({fixed_pos_value or 50000.0}, self.data.Close[-1], self.lot_size)\n"
+    elif is_kelly:
+        # Adaptive Kelly sizing (v7.8 Task 3 pt.3): estimate win-rate & payoff from THIS strategy's
+        # own realized trades so far, then deploy that Kelly fraction of equity. Before KELLY_MIN_TRADES
+        # have closed (or when the measured edge is <= 0) it sizes at the fixed-value fallback / minimum
+        # lot — Kelly only sizes UP once a real, positive edge has been observed.
+        kelly_fn = "kelly_fraction" if pos_size_type == "Full Kelly (Adaptive)" else "half_kelly_fraction"
+        code += "        _ct = self.closed_trades\n"
+        code += f"        if len(_ct) >= {int(KELLY_MIN_TRADES)}:\n"
+        code += "            _wins = [t.pl for t in _ct if t.pl > 0]\n"
+        code += "            _losses = [-t.pl for t in _ct if t.pl < 0]\n"
+        code += "            if _wins and _losses:\n"
+        code += "                _wr = len(_wins) / (len(_wins) + len(_losses))\n"
+        code += "                _payoff = (sum(_wins) / len(_wins)) / (sum(_losses) / len(_losses))\n"
+        code += f"                _f = {kelly_fn}(_wr, _payoff)\n"
+        code += "            else:\n"
+        code += "                _f = 0.0\n"
+        code += "            _raw_qty = int((self.equity * _f * 0.99) // self.data.Close[-1])\n"
+        code += "            _trade_size = max(self.lot_size, _raw_qty - (_raw_qty % self.lot_size))\n"
+        code += "        else:\n"
+        code += f"            _trade_size = fixed_value_qty({fixed_pos_value or 50000.0}, self.data.Close[-1], self.lot_size)\n"
     elif pos_size_type == "Fixed Value per Trade (₹) (Default)":
         code += f"        _raw_qty = int({fixed_pos_value} // self.data.Close[-1])\n"
         code += "        _trade_size = max(self.lot_size, _raw_qty - (_raw_qty % self.lot_size))\n"

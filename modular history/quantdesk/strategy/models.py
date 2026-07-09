@@ -99,6 +99,10 @@ class RiskManagement:
     atr_period: int = 14          # ATR length for the volatility stop / ATR-risk sizing
     atr_stop_mult: float = 2.0    # stop distance = atr_stop_mult × ATR
     max_bars_in_trade: int = 0    # time stop: close a trade after this many bars (0 = off)
+    # v7.8 Task 3 pt.3 — breakeven stop + partial exit / scale-out
+    breakeven_trigger_pct: float = 0.0  # move stop to entry once price moves this % in favour (0 = off)
+    partial_exit_pct: float = 0.0       # % of the position to bank at the first target (0 = off)
+    partial_trigger_pct: float = 0.0    # favourable move % that triggers the partial exit (0 = off)
 
     def to_dict(self) -> dict:
         return {
@@ -112,6 +116,9 @@ class RiskManagement:
             "atr_period": self.atr_period,
             "atr_stop_mult": self.atr_stop_mult,
             "max_bars_in_trade": self.max_bars_in_trade,
+            "breakeven_trigger_pct": self.breakeven_trigger_pct,
+            "partial_exit_pct": self.partial_exit_pct,
+            "partial_trigger_pct": self.partial_trigger_pct,
         }
 
     @classmethod
@@ -128,6 +135,9 @@ class RiskManagement:
             atr_period=d.get("atr_period", 14),
             atr_stop_mult=d.get("atr_stop_mult", 2.0),
             max_bars_in_trade=d.get("max_bars_in_trade", 0),
+            breakeven_trigger_pct=d.get("breakeven_trigger_pct", 0.0),
+            partial_exit_pct=d.get("partial_exit_pct", 0.0),
+            partial_trigger_pct=d.get("partial_trigger_pct", 0.0),
         )
 
 

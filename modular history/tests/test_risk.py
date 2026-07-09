@@ -118,6 +118,9 @@ def test_default_sizing_unchanged_when_risk_features_off():
     code = build_strategy_code(_cfg())
     assert "risk_pct_qty(" not in code and "_peak_equity" not in code
     assert "_risk_atr" not in code and "entry_bar" not in code
+    # v7.8 pt.3 features are all opt-in — none must leak into a default strategy
+    assert "breakeven_stop(" not in code and "_scaled_out" not in code
+    assert "closed_trades" not in code and "kelly_fraction(" not in code
 
 
 # ----------------------------------------------------- Task 3 pt.2: ATR stops + time stops
@@ -153,3 +156,68 @@ def test_time_stop_codegen_caps_holding_period():
     # no trade is held longer than the cap (a couple bars of slack for the close bar)
     dur = stats["_trades"]["ExitBar"] - stats["_trades"]["EntryBar"]
     assert dur.max() <= 22
+
+
+# ------------------------------------------- Task 3 pt.3: breakeven / partial exit / Kelly
+def test_breakeven_stop_codegen_compiles_and_runs():
+    """Breakeven emits a stop-to-entry ratchet and measurably alters exits vs the same SL/TP alone."""
+    from quantdesk.strategy.codegen import build_strategy_code
+    base = _cfg(mode="Static % Stop Loss / Take Profit", sl_pct=2.0, tp_pct=8.0)
+    be = _cfg(mode="Static % Stop Loss / Take Profit", sl_pct=2.0, tp_pct=8.0, breakeven_trigger_pct=1.5)
+    be_code = build_strategy_code(be)
+    assert "breakeven_stop(" in be_code and "_be_t.sl = _be" in be_code
+    assert "breakeven_stop(" not in build_strategy_code(base)   # gated off by default
+    base_stats, be_stats = _run(build_strategy_code(base)), _run(be_code)
+    assert int(be_stats["# Trades"]) > 0
+    # relocating the stop to breakeven changes at least one exit -> a different net return
+    assert abs(float(be_stats["Return [%]"]) - float(base_stats["Return [%]"])) > 1e-9
+
+
+def test_partial_exit_scales_out_and_adds_trade_records():
+    """Scale-out closes part of the position at the first target -> extra closed-trade records."""
+    from quantdesk.strategy.codegen import build_strategy_code
+    base = _cfg(mode="Static % Stop Loss / Take Profit", sl_pct=2.0, tp_pct=8.0)
+    pe = _cfg(mode="Static % Stop Loss / Take Profit", sl_pct=2.0, tp_pct=8.0,
+              partial_exit_pct=50.0, partial_trigger_pct=3.0)
+    pe_code = build_strategy_code(pe)
+    assert "self.position.close(portion=" in pe_code and "_scaled_out" in pe_code
+    base_n, pe_n = int(_run(build_strategy_code(base))["# Trades"]), int(_run(pe_code)["# Trades"])
+    assert pe_n > base_n     # each scale-out splits one position into two closed-trade rows
+
+
+def test_kelly_sizing_codegen_compiles_and_runs():
+    from quantdesk.strategy.codegen import build_strategy_code
+    half = build_strategy_code(_cfg(pos_size_type="Half-Kelly (Adaptive)"))
+    full = build_strategy_code(_cfg(pos_size_type="Full Kelly (Adaptive)"))
+    assert "half_kelly_fraction(" in half and "closed_trades" in half
+    assert "kelly_fraction(" in full and "half_kelly_fraction(" not in full
+    assert int(_run(half)["# Trades"]) > 0 and int(_run(full)["# Trades"]) > 0
+
+
+def test_kelly_sizes_up_on_a_positive_edge():
+    """On a winning strategy with mixed wins/losses, adaptive Kelly deploys > 1 lot post-warmup."""
+    import numpy as np
+    import pandas as pd
+    from backtesting import Backtest
+    from quantdesk.strategy.codegen import build_strategy_code
+    from quantdesk.strategy.compiler import compile_strategy
+    from quantdesk.strategy.models import RiskManagement, StrategyConfig
+
+    n = 6000
+    idx = pd.date_range("2022-01-03 09:15", periods=n, freq="15min")
+    close = np.linspace(100, 260, n) + 8 * np.sin(np.linspace(0, 260, n)) \
+        + np.random.default_rng(0).normal(0, 2.5, n)   # net-up trend, some losers -> real Kelly edge
+    df = pd.DataFrame({"Open": close - 0.2, "High": close + 1.0, "Low": close - 1.0,
+                       "Close": close, "Volume": np.full(n, 1000)}, index=idx)
+    cfg = StrategyConfig(
+        indicators=[{"name": "EMA_f", "type": "EMA", "source": "Close", "params": {"period": 5}},
+                    {"name": "EMA_s", "type": "EMA", "source": "Close", "params": {"period": 20}}],
+        buy_rules=[{"logic": "IF", "var1": "EMA_f", "operator": "Crosses Above", "var2": "EMA_s", "is_num": False}],
+        sell_rules=[{"logic": "IF", "var1": "EMA_f", "operator": "Crosses Below", "var2": "EMA_s", "is_num": False}],
+        pos_size_type="Half-Kelly (Adaptive)", risk_management=RiskManagement(strat_dir="Long Only"),
+    )
+    stats = Backtest(df, compile_strategy(build_strategy_code(cfg)), cash=1_000_000,
+                     commission=0.0005, finalize_trades=True).run()
+    sizes = stats["_trades"]["Size"].to_numpy()
+    assert len(sizes) > 20                       # enough closed trades to pass the warmup floor
+    assert sizes[20:].max() > 1                  # Kelly engaged and sized up from the minimum lot

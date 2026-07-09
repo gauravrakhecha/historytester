@@ -64,7 +64,24 @@ Lifts the audit's lowest dimension (Risk 3.5) out of fixed-₹/lot-only sizing.
   trade after N bars). models/codegen/compiler-namespace/builder-UI/validation + preset round-trip.
   `tests/test_risk.py` now 13; full suite **108 green** + AppTest. Real drive: time stop capped max
   holding 150→20 bars; ATR stop lifted return 1.8%→5.4%; ATR-risk sizing runs.
-- **Still deferred (later):** breakeven stops, partial exits/scale-out, and Kelly-informed sizing.
+- **Task 3 pt.3 ✅ DONE (2026-07-09, RELEASED as v7.8):** the last three risk capabilities.
+  - **Breakeven stop** (`breakeven_trigger_pct`) — once an open trade moves the trigger% in favour,
+    ratchet its native `Trade.sl` up to entry (never loosen; guarded so the new stop always sits on the
+    safe side of the close so it can't fill instantly). Works alongside Static-%/ATR stops.
+  - **Partial exit / scale-out** (`partial_exit_pct` + `partial_trigger_pct`) — bank a fraction of the
+    position at a first target via `Position.close(portion=)`, once per trade (`_scaled_out`, reset when
+    flat); the remainder keeps its SL/TP. Composes with breakeven (scale out → move rest to breakeven).
+  - **Adaptive Kelly sizing** — two new `pos_size_type` modes "Half-Kelly (Adaptive)" / "Full Kelly
+    (Adaptive)" that estimate win-rate & payoff from the strategy's OWN `closed_trades` and deploy that
+    Kelly fraction of equity, engaging only after `config.KELLY_MIN_TRADES` (20) trades close (fixed-value
+    warm-up before that; ≤0 edge → minimum lot). Pure `kelly_fraction`/`half_kelly_fraction` (already
+    tested) injected into the compiler namespace.
+  - Wired through models/codegen/compiler-namespace/builder-UI/validation + preset round-trip; all opt-in
+    (default strategy code byte-identical — parity test extended to lock it). `tests/test_risk.py` now 17.
+    Real drive: partial exit split 55→60 trade records & cut MaxDD −7.82→−7.60; breakeven altered exits;
+    Half-Kelly compounded a +edge synthetic to +42.7% while Full-Kelly's variance left the same edge at
+    −0.5% (the aggression the UI warns about); Kelly correctly refused to size up a negative-edge strategy.
+- **Task 3 COMPLETE.** No further risk deferrals.
 
 ## Release
 Ship Tasks 1–3 together as **v7.1** (charges-in-equity is the CHANGELOG headline); publish + sambhav
