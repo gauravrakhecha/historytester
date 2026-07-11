@@ -5,7 +5,7 @@ brokers (Upstox, Zerodha, Dhan) and build + backtest + optimise + ML-mine algori
 strategies — **without writing a line of code**.
 
 > **Two editions in this repo:**
-> - **Modular Edition** (recommended, **latest = v7.8**): a fast, modular, tested package under
+> - **Modular Edition** (recommended, **latest = v8.0**): a fast, modular, tested package under
 >   [`modular history/`](modular%20history/). v4 refactored the monolith 1:1; **v5** added honest
 >   out-of-sample validation, real India charges, a data-quality gate and QuantStats; **v6** is an
 >   audit-hardening + speed + CSV/Parquet-saving release; **v7 "Feature Maturity"** makes the analytics
@@ -16,8 +16,11 @@ strategies — **without writing a line of code**.
 >   simulated equity curve, so every metric/optimizer/walk-forward result is net of costs; **v7.6** adds
 >   professional **risk management** — risk-% position sizing (sized from the stop distance) and a
 >   max-drawdown circuit-breaker; **v7.7** adds ATR (volatility) stops and time stops; **v7.8** completes
->   the risk chapter with breakeven stops, partial exits/scale-out and adaptive Half/Full-Kelly sizing.
->   Start here for new work.
+>   the risk chapter with breakeven stops, partial exits/scale-out and adaptive Half/Full-Kelly sizing;
+>   **v8.0 "Data Integrity"** stops silent download gaps (a failed chunk is now surfaced, not swallowed;
+>   files are named by their actual coverage) and adds an NSE-calendar-aware quality gate that flags
+>   missing trading days — and restores the `quantdesk/data/` package a stray `.gitignore` rule had been
+>   excluding from every prior release. Start here for new work.
 > - **v3 — Single-file** (`upstox_app.py`): the original 3,207-line app, retained as reference.
 >
 > The v4 refactor was feature-for-feature identical to v3 (numeric parity harness); v5/v6/v7 then make

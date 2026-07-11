@@ -28,12 +28,51 @@ def test_loader_and_resample():
 
 
 def test_quality_clean_data():
+    """OHLC-clean, gap-free data scores high.
+
+    NOTE: the real RELIANCE 15-minute fixture is OHLC-clean but has genuine
+    multi-week calendar holes (recurring ~1-month Feb-March gaps), so the new
+    calendar-aware gate legitimately scores it below 95 — the previous ">=95 on
+    this file" assertion had merely encoded the old gate's blindness to missing
+    days. The "clean => high score" property is therefore asserted on gap-free
+    synthetic data; the real file is checked only for OHLC validity here, and its
+    gaps are covered by test_quality_flags_missing_chunk.
+    """
     from quantdesk.data.loader import load_ohlcv
     from quantdesk.data.quality import validate
 
     rep = validate(load_ohlcv(DATA))
     assert rep["bad_ohlc_count"] == 0
-    assert rep["quality_score"] >= 95
+
+    clean = pd.DataFrame({
+        "Timestamp": pd.date_range("2024-01-01 09:15", periods=500, freq="15min"),
+        "Open": 100.0, "High": 101.0, "Low": 99.0, "Close": 100.5, "Volume": 1000,
+    })
+    crep = validate(clean)
+    assert crep["bad_ohlc_count"] == 0
+    assert crep["missing_trading_days"] == 0
+    assert crep["quality_score"] >= 95
+
+
+def test_quality_flags_missing_chunk():
+    """A contiguous multi-week hole (a lost download chunk) is detected + penalised."""
+    from quantdesk.data.quality import validate
+
+    full = pd.DataFrame({
+        "Timestamp": pd.bdate_range("2024-01-01", periods=180),
+        "Open": 100.0, "High": 101.0, "Low": 99.0, "Close": 100.5, "Volume": 1000,
+    })
+    base = validate(full)
+    assert base["missing_trading_days"] == 0
+
+    ts = pd.to_datetime(full["Timestamp"])
+    hole = (ts >= ts.iloc[60]) & (ts < ts.iloc[60] + pd.Timedelta(days=30))
+    holey = full[~hole].reset_index(drop=True)
+    rep = validate(holey)
+    assert rep["missing_trading_days"] > 15
+    assert rep["max_gap_run"] >= 3  # contiguous run == a hole, not provider noise
+    assert rep["quality_score"] < base["quality_score"]
+    assert any("missing trading day" in i for i in rep["issues"])
 
 
 def test_models_selectable_columns_includes_multioutput():

@@ -1,6 +1,19 @@
 # CURRENT STATUS — QuantDesk (modular) — resume doc
 
-**Last updated:** 2026-07-09 · **Current version:** **v7.8** · Handoff: [`RESUME_CONTEXT.md`](RESUME_CONTEXT.md) · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
+**Last updated:** 2026-07-11 · **Current version:** **v8.0** · Handoff: [`RESUME_CONTEXT.md`](RESUME_CONTEXT.md) · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
+
+> **v8.0 "Data Integrity" (2026-07-11) — SHIPPED.** Closes the download→data blind spot found in the
+> MBS-vs-QuantDesk audit. (1) **Silent chunk loss fixed** — `brokers/downloader.py` no longer swallows a
+> failed chunk as an empty frame: it raises `ChunkDownloadError` (with the date range), logs a WARNING, and
+> returns `DownloadResult(df, failed_ranges, complete)`; the 3 downloader pages warn loudly on any failure and
+> name the file + `downloads_log` by the **actual retrieved range**, not the requested one (bulk adds an
+> "Incomplete" count). (2) **Back-off** now exponential + full jitter, honouring HTTP 429 `Retry-After`.
+> (3) **Calendar-aware quality gate** — `data/quality.py` flags missing NSE trading days (bundled
+> `nse_holidays.csv`); a contiguous multi-week hole lowers the score + raises an issue. Real finding: the
+> RELIANCE 15m fixture has genuine recurring ~1-month Feb–March holes (92 missing days) the old gate rated
+> 95+ and the new one rates 66.6. Full suite **117 green** (was 112). NEXT = the Autonomous Data Agent
+> ([`ROADMAP_v8_data_agent.md`](ROADMAP_v8_data_agent.md) — originally earmarked "v8"; now the milestone
+> after this v8.0 data-integrity release).
 
 > **Read this first after a context reset.** It captures everything needed to continue without re-deriving state.
 

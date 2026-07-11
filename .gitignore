@@ -4,10 +4,14 @@
 *.key
 
 # --- databases / runtime data ---
+# NOTE: `data/` must stay ANCHORED (leading slash / explicit path). A bare `data/`
+# also matches the SOURCE package `modular history/quantdesk/data/`, which silently
+# excluded the entire data layer from every release up to v7.8. Do not un-anchor it.
 *.db
 *.db-wal
 *.db-shm
-data/
+/data/
+modular history/data/
 backups/
 plots/
 

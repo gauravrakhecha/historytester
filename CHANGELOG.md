@@ -1,5 +1,39 @@
 # Changelog
 
+## v8.0 — Data Integrity: no more silent download gaps + calendar-aware quality gate (2026-07-11)
+
+Closes a data-trust blind spot surfaced by an audit of the download → data path. **117 passing tests**
+(was 112). This release is about one promise: **you can trust that a saved dataset contains what its name
+says it contains.**
+
+- **Silent chunk loss — FIXED (the headline).** Historical data is fetched in chunks (30 days for
+  1-minute, a year otherwise). Previously, a chunk that failed every retry was swallowed as an empty
+  frame — indistinguishable from a genuinely empty range — so a rate-limit or dropped connection left a
+  **silent hole** in the saved file while the UI reported success and named the file for the *requested*
+  range. Now `brokers/downloader.py` raises `ChunkDownloadError` (carrying the exact date range), logs a
+  WARNING, and returns a `DownloadResult(df, failed_ranges, complete)`. All three downloader pages
+  (Single / Bulk / Master) **warn loudly** on any failure and name the saved file + `downloads_log` row
+  by the **actual retrieved range**, not the requested one; the Bulk page adds an "Incomplete" count.
+- **Smarter retries.** Back-off is now exponential with full jitter (was a fixed 0.5/1.0/1.5 s) and
+  honours a broker's HTTP 429 `Retry-After` signal, so a transient rate-limit is far more likely to
+  recover within the retry budget instead of dropping the chunk.
+- **Calendar-aware data-quality gate.** `data/quality.py` now checks your data against the **NSE trading
+  calendar** (weekends + holidays excluded, via a bundled `nse_holidays.csv`) and flags **missing trading
+  days**. A contiguous multi-week hole lowers the quality score and raises *"N missing trading day(s) —
+  possible incomplete download"*; scattered single days barely move it. This catches holes left by *past*
+  downloads, not just future ones.
+- **Real finding from verification:** the bundled RELIANCE 15-minute fixture has genuine, recurring
+  ~1-month **Feb–March holes** every year (2023–2026; 92 missing trading days) that the old gate scored
+  95+ and the new gate scores 66.6. Older multi-year datasets likely have similar holes — re-download to
+  fill them. New tests: `tests/test_downloader.py` (failed-chunk surfacing, Retry-After) and
+  `test_quality_flags_missing_chunk`; `test_quality_clean_data` was corrected (its old "≥95 on the real
+  file" assertion had merely encoded the old gate's blindness to missing days).
+- **Packaging fix (important):** the repo's `.gitignore` had a bare `data/` rule that also matched the
+  **source** package `modular history/quantdesk/data/`, so every release up to v7.8 shipped **without the
+  data layer** (loader / quality / resample / corporate-actions) — a fresh clone could not run. The rule
+  is now anchored (`/data/` + `modular history/data/`), and the full `quantdesk/data/` package is restored
+  to the repository.
+
 ## v7.8 — Risk management complete: breakeven stops, partial exits, adaptive Kelly sizing (2026-07-09)
 
 Finishes the risk-management chapter of the post-audit "Trustworthy Core" milestone (Task 3 pt.3 — the

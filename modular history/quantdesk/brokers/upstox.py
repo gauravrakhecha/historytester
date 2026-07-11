@@ -20,6 +20,22 @@ from quantdesk.core.logging import get_logger
 log = get_logger("brokers.upstox")
 
 
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a ``Retry-After`` header (delta-seconds form) into seconds.
+
+    Only the numeric delta-seconds form is honoured; the rarely-used HTTP-date
+    form degrades to ``None`` (the orchestrator then falls back to its own
+    exponential back-off), which is safe.
+    """
+    if not value:
+        return None
+    try:
+        secs = float(value.strip())
+        return secs if secs >= 0 else None
+    except (ValueError, AttributeError):
+        return None
+
+
 async def fetch_single(session, row, interval, start_dt, end_dt, auth_dict) -> pd.DataFrame:
     start_str = start_dt.strftime("%Y-%m-%d")
     end_str = end_dt.strftime("%Y-%m-%d")
@@ -38,7 +54,11 @@ async def fetch_single(session, row, interval, start_dt, end_dt, auth_dict) -> p
                 df["Timestamp"] = pd.to_datetime(df["Timestamp"]).dt.tz_localize(None)
                 return df
             return pd.DataFrame()
-        raise RetryableError(f"Upstox HTTP {resp.status}")
+        raise RetryableError(
+            f"Upstox HTTP {resp.status}",
+            status=resp.status,
+            retry_after=_parse_retry_after(resp.headers.get("Retry-After")),
+        )
 
 
 # --- options endpoints (sync; used by the Options Chain page) ----------------

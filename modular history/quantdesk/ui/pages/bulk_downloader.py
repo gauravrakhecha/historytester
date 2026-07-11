@@ -87,7 +87,7 @@ def render(ctx):
                 pbar = st.progress(0, text="0% - Starting Bulk Download...")
                 os.makedirs(local_path, exist_ok=True)
 
-                success_count, fail_count = 0, 0
+                success_count, fail_count, partial_count = 0, 0, 0
                 for i, sym in enumerate(raw_symbols):
                     status_area.text(f"⏳ ({i+1}/{len(raw_symbols)}) Async Fetching {sym}...")
                     row = C.get_instrument_row(ctx.master_df, sym)
@@ -102,17 +102,23 @@ def render(ctx):
                                 dl_intv = intv
                                 sv_lbl = intv.replace(" ", "")
 
-                            df = run_async_download(ctx.broker, row, dl_intv, from_date, to_date, ctx.auth_dict, apply_corp_actions=apply_ca)
+                            result = run_async_download(ctx.broker, row, dl_intv, from_date, to_date, ctx.auth_dict, apply_corp_actions=apply_ca)
+                            df = result.df
                             if not df.empty:
+                                actual_from = df["Timestamp"].min().date()
+                                actual_to = df["Timestamp"].max().date()
                                 if intv == "Custom (Minutes)":
                                     df = resample_dataframe(df, custom_val)
                                 safe_sym = sym.replace(" ", "_")
                                 save_dir = os.path.join(local_path, safe_sym, sv_lbl)
                                 os.makedirs(save_dir, exist_ok=True)
-                                full_path = os.path.join(save_dir, f"{safe_sym}_{sv_lbl}_{from_date}_{to_date}.parquet")
+                                full_path = os.path.join(save_dir, f"{safe_sym}_{sv_lbl}_{actual_from}_{actual_to}.parquet")
                                 written = save_frame(df, full_path, local_path, csv_dir)
-                                log_download(ctx.broker, sym, row["instrument_key"], sv_lbl, from_date, to_date, primary_path(written, full_path))
-                                success_count += 1
+                                log_download(ctx.broker, sym, row["instrument_key"], sv_lbl, actual_from, actual_to, primary_path(written, full_path))
+                                if result.complete:
+                                    success_count += 1
+                                else:
+                                    partial_count += 1
                             else:
                                 fail_count += 1
                     else:
@@ -120,5 +126,9 @@ def render(ctx):
                     pct = (i + 1) / len(raw_symbols)
                     pbar.progress(pct, text=f"Batch Progress: {int(pct * 100)}% - Processed {i+1} of {len(raw_symbols)}")
 
-                status_area.success(f"✅ Batch Complete! Success: {success_count}, Failed: {fail_count}")
+                _summary = f"✅ Batch Complete! Complete: {success_count}, Incomplete: {partial_count}, Failed: {fail_count}"
+                if partial_count:
+                    status_area.warning(_summary + " — incomplete files have missing date ranges (retries failed); re-fetch those symbols.")
+                else:
+                    status_area.success(_summary)
                 st.caption(format_summary(csv_dir))

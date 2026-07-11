@@ -46,25 +46,40 @@ def render(ctx):
         else:
             pbar = st.progress(0, text="Initializing download...")
             apply_ca = st.session_state.get("apply_corp_actions", True)
-            df_hist = run_async_download(
+            result = run_async_download(
                 ctx.broker, selected_row, download_interval, from_date, to_date, ctx.auth_dict,
                 C.make_progress(pbar), apply_corp_actions=apply_ca,
             )
+            df_hist = result.df
+            if result.failed_ranges:
+                ranges_txt = ", ".join(f"{s} → {e}" for s, e in result.failed_ranges)
+                st.error(
+                    f"⚠️ {len(result.failed_ranges)} date range(s) failed to download after retries "
+                    f"and are MISSING from this data: {ranges_txt}. Re-fetch before trusting it."
+                )
 
             if not df_hist.empty:
+                actual_from = df_hist["Timestamp"].min().date()
+                actual_to = df_hist["Timestamp"].max().date()
                 if interval_select == "Custom (Minutes)":
                     df_hist = resample_dataframe(df_hist, custom_val)
-                st.success(f"Success! Fetched {len(df_hist)} rows.")
+                if result.complete:
+                    st.success(f"Success! Fetched {len(df_hist)} rows.")
+                else:
+                    st.warning(
+                        f"⚠️ Saved INCOMPLETE data: {len(df_hist)} rows covering "
+                        f"{actual_from} → {actual_to}; {len(result.failed_ranges)} range(s) failed."
+                    )
 
                 safe_name = selected_row["tradingsymbol"].replace(" ", "_")
-                filename = f"{safe_name}_{save_label}_{from_date}_{to_date}.parquet"
+                filename = f"{safe_name}_{save_label}_{actual_from}_{actual_to}.parquet"
 
                 if local_path:
                     full_dir = os.path.join(local_path, safe_name, save_label)
                     os.makedirs(full_dir, exist_ok=True)
                     full_path = os.path.join(full_dir, filename)
                     written = save_frame(df_hist, full_path, local_path, csv_dir)
-                    log_download(ctx.broker, selected_row["tradingsymbol"], selected_row["instrument_key"], save_label, from_date, to_date, primary_path(written, full_path))
+                    log_download(ctx.broker, selected_row["tradingsymbol"], selected_row["instrument_key"], save_label, actual_from, actual_to, primary_path(written, full_path))
                     st.success("✅ Saved: " + " , ".join(written))
                 else:
                     st.download_button(

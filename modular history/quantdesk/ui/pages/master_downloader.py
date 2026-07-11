@@ -67,25 +67,35 @@ def render(ctx):
             pbar = st.progress(0, text="0% - Starting Download...")
             apply_ca = st.session_state.get("apply_corp_actions", True)
             status.info(f"⚡ Fetching Base 1-Minute Data for {selected_row['tradingsymbol']} (Concurrent chunks...)")
-            df_master = run_async_download(
+            result = run_async_download(
                 ctx.broker, selected_row, "1 Minute", from_date, to_date, ctx.auth_dict,
                 C.make_progress(pbar), apply_corp_actions=apply_ca,
             )
+            df_master = result.df
 
             if df_master.empty:
                 status.error("No data returned. Check limits/date range.")
             else:
-                status.success(f"✅ Base Extracted: {len(df_master)} rows. Resampling {len(tfs)} timeframes...")
+                actual_from = df_master["Timestamp"].min().date()
+                actual_to = df_master["Timestamp"].max().date()
+                if result.failed_ranges:
+                    ranges_txt = ", ".join(f"{s} → {e}" for s, e in result.failed_ranges)
+                    status.warning(
+                        f"⚠️ Base data INCOMPLETE: {len(result.failed_ranges)} range(s) failed "
+                        f"({ranges_txt}). Every resampled timeframe below inherits these gaps."
+                    )
+                else:
+                    status.success(f"✅ Base Extracted: {len(df_master)} rows. Resampling {len(tfs)} timeframes...")
                 safe_sym = selected_row["tradingsymbol"].replace(" ", "_").replace(":", "")
                 symbol_dir = os.path.join(local_path, safe_sym)
                 os.makedirs(symbol_dir, exist_ok=True)
 
                 for tf in tfs:
                     df_resampled = resample_dataframe(df_master, tf)
-                    filename = f"{safe_sym}_{tf}Min_{from_date}_to_{to_date}.parquet"
+                    filename = f"{safe_sym}_{tf}Min_{actual_from}_to_{actual_to}.parquet"
                     save_path = os.path.join(symbol_dir, filename)
                     written = save_frame(df_resampled, save_path, local_path, csv_dir)
-                    log_download(ctx.broker, selected_row["tradingsymbol"], selected_row["instrument_key"], f"{tf} Minute", from_date, to_date, primary_path(written, save_path))
+                    log_download(ctx.broker, selected_row["tradingsymbol"], selected_row["instrument_key"], f"{tf} Minute", actual_from, actual_to, primary_path(written, save_path))
 
                 status.success(f"🎉 Fully Complete! Generated {len(tfs)} timeframe files for each enabled format.")
                 st.caption(format_summary(csv_dir) + f"  Parquet symbol folder: `{symbol_dir}`")

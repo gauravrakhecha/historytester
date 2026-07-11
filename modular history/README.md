@@ -27,6 +27,34 @@ Every downloader (Master / Single / Bulk / Options) can save **Parquet**, **CSV*
   Folder** (blank = save CSVs alongside the Parquet) — so you can set both destinations per download.
 - A 💾 line on each page states exactly which formats are written and where.
 
+## Reliable downloads & data integrity
+
+Historical data is pulled in **chunks** (30 days at a time for 1-minute data, a year at a time
+otherwise) and stitched together. Two safeguards make sure you never end up trusting data that
+has silent holes in it:
+
+**1. A failed chunk is never hidden.** If a piece of the download fails every retry (a broker
+rate-limit, a dropped connection), the app now:
+
+- **tells you loudly** which date range(s) failed instead of quietly skipping them,
+- **names the saved file by the range it actually got** (e.g. `RELIANCE_1Minute_2024-01-01_2024-05-04.parquet`),
+  not the range you asked for — so a file's name never over-promises its contents,
+- and, in a bulk run, reports a separate **"Incomplete"** count alongside Complete / Failed.
+
+If you see an "incomplete" warning, just re-fetch that symbol; the app retries with a proper
+back-off (and respects a broker's "try again in N seconds" rate-limit signal).
+
+**2. The data-quality check catches missing days.** Before a backtest, every dataset gets a
+0–100 **quality score**. It now also compares your data against the **NSE trading calendar**
+(weekends and holidays excluded) and flags any **missing trading days** — so a gap left behind
+by an old failed download shows up as *"N missing trading day(s) — possible incomplete download"*
+and lowers the score, instead of passing as clean just because the bars that *are* present look
+fine. A short run of scattered missing days barely moves the score; a solid multi-week hole
+drops it sharply.
+
+> Tip: if the quality check flags missing days on data you downloaded a while ago, that data was
+> likely affected by the old silent-gap behaviour — re-download it once to fill the holes.
+
 ## What changed (and what didn't)
 
 **Same 13 features**, identical behaviour: Master / Single / Bulk downloaders, Options Chain,
@@ -60,6 +88,15 @@ and the ML Pattern Finder.
 - **v6.1 chart redesign** — oscillators (RSI/ADX/Stochastic/MACD/…) render in their own stacked
   panels with guide lines instead of being crushed onto the price axis; WebGL + candle
   downsampling + intraday gap-collapse; optional engine-native Bokeh "Pro chart" toggle.
+
+**v8.0 — data integrity (reliable downloads):**
+- **Silent chunk loss fixed** — a download chunk that fails all retries is now logged, surfaced
+  to you, and excluded from the file's advertised date range, instead of being swallowed as an
+  empty result that left an invisible hole. Retries use exponential back-off with jitter and
+  honour a broker's HTTP 429 `Retry-After`.
+- **Calendar-aware quality gate** — the data-quality score now detects **missing NSE trading
+  days** (weekends/holidays excluded), so a multi-week gap from an old failed download is caught
+  and flagged rather than passing as clean. See *"Reliable downloads & data integrity"* above.
 
 ## Architecture
 
