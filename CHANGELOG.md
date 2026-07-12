@@ -1,5 +1,18 @@
 # Changelog
 
+## v8.2 — Repo restructure: one app at the root (2026-07-12)
+
+Housekeeping, no behaviour change. The repository previously held **two** apps — the original
+single-file `upstox_app.py` at the root and the maintained app in a `modular history/` subfolder —
+which made it easy to run the wrong one.
+
+- The maintained app (`quantdesk/`, `app_main.py`, `tests/`, `run.bat`, `install.bat`, …) is now at
+  the **repository root**. Just `install.bat` then `run.bat`.
+- The legacy monolith `upstox_app.py` (and its old launchers / User Guide PDF) has been **removed**
+  from the working tree. It remains in git history at tag `v8.1` and earlier if ever needed.
+- Root `README.md` / `.gitignore` / docs updated for the flat layout; file history preserved across
+  the move (`git mv`).
+
 ## v8.1 — Backlog Clear: trade analytics, tax export, HTF bias & intraday square-off (2026-07-12)
 
 Clears the QuantDesk deferred backlog. Full test suite green + AppTest (all 13 pages, a UI backtest,

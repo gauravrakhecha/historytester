@@ -1,149 +1,134 @@
-# Unified Market Data Downloader & No-Code Backtester
+# QuantDesk — Unified Market Data Downloader & Quant Engine
 
-An all-in-one financial workstation: download historical market data across multiple Indian
-brokers (Upstox, Zerodha, Dhan) and build + backtest + optimise + ML-mine algorithmic trading
-strategies — **without writing a line of code**.
+A **modular** Streamlit app to download Indian market data (Upstox / Zerodha / Dhan) and
+build, backtest, optimise and ML-mine **no-code** trading strategies. This is the maintained
+product; the code lives in the `quantdesk/` package with a thin `app_main.py` entry point.
 
-> **Two editions in this repo:**
-> - **Modular Edition** (recommended, **latest = v8.1**): a fast, modular, tested package under
->   [`modular history/`](modular%20history/). v4 refactored the monolith 1:1; **v5** added honest
->   out-of-sample validation, real India charges, a data-quality gate and QuantStats; **v6** is an
->   audit-hardening + speed + CSV/Parquet-saving release; **v7 "Feature Maturity"** makes the analytics
->   trustworthy — normalized cross-asset features, an ML pattern finder with out-of-sample + significance
->   gating, and optimizer validation (Probabilistic/Deflated Sharpe, parameter-stability heatmap,
->   walk-forward, Monte-Carlo bands); **v7.5 "Trustworthy Core"** hardens the compiler against a preset-
->   upload RCE and makes backtests **charge-accurate** — real India charges are now applied inside the
->   simulated equity curve, so every metric/optimizer/walk-forward result is net of costs; **v7.6** adds
->   professional **risk management** — risk-% position sizing (sized from the stop distance) and a
->   max-drawdown circuit-breaker; **v7.7** adds ATR (volatility) stops and time stops; **v7.8** completes
->   the risk chapter with breakeven stops, partial exits/scale-out and adaptive Half/Full-Kelly sizing;
->   **v8.0 "Data Integrity"** stops silent download gaps (a failed chunk is now surfaced, not swallowed;
->   files are named by their actual coverage) and adds an NSE-calendar-aware quality gate that flags
->   missing trading days — and restores the `quantdesk/data/` package a stray `.gitignore` rule had been
->   excluding from every prior release. Start here for new work.
-> - **v3 — Single-file** (`upstox_app.py`): the original 3,207-line app, retained as reference.
->
-> The v4 refactor was feature-for-feature identical to v3 (numeric parity harness); v5/v6/v7 then make
-> every reported number trustworthy and the app fast. See the [Changelog](CHANGELOG.md) and
-> [`modular history/ROADMAP_v7.md`](modular%20history/ROADMAP_v7.md).
+> History: this began as a single 3,207-line file (`upstox_app.py`) and was refactored 1:1
+> into `quantdesk/` (behaviour verified byte-identical via a numeric parity harness), then
+> matured well beyond it. The original monolith is no longer in the working tree — it remains
+> in git history at tag `v8.1` and earlier if you ever need it.
 
----
+## Run it
 
-## 🚀 Quick start
-
-### v4 (Modular Edition)
 ```bat
-cd "modular history"
-install.bat     :: one-time: creates an isolated .venv (uv) + installs requirements
-run.bat         :: launches the dashboard in your browser
+install.bat   :: one-time: creates an isolated .venv via uv and installs requirements
+run.bat       :: launches the dashboard (Streamlit) in your browser
 ```
 
-### v3 (Single-file)
-```bat
-install.bat
-run.bat
+`run.bat` uses this folder's `.venv`.
+
+## Saving downloaded data (CSV / Parquet)
+
+Every downloader (Master / Single / Bulk / Options) can save **Parquet**, **CSV**, or **Both**:
+
+- Set the default in **⚙️ Settings → Paths & Data Format → Download Save Format** (default **Both**),
+  with an optional **CSV Data Directory** for keeping CSVs in a separate folder.
+- Each download page also shows **two folder inputs** — a **Parquet Save Folder** and a **CSV Save
+  Folder** (blank = save CSVs alongside the Parquet) — so you can set both destinations per download.
+- A 💾 line on each page states exactly which formats are written and where.
+
+## Reliable downloads & data integrity
+
+Historical data is pulled in **chunks** (30 days at a time for 1-minute data, a year at a time
+otherwise) and stitched together. Two safeguards make sure you never end up trusting data that
+has silent holes in it:
+
+**1. A failed chunk is never hidden.** If a piece of the download fails every retry (a broker
+rate-limit, a dropped connection), the app now:
+
+- **tells you loudly** which date range(s) failed instead of quietly skipping them,
+- **names the saved file by the range it actually got** (e.g. `RELIANCE_1Minute_2024-01-01_2024-05-04.parquet`),
+  not the range you asked for — so a file's name never over-promises its contents,
+- and, in a bulk run, reports a separate **"Incomplete"** count alongside Complete / Failed.
+
+If you see an "incomplete" warning, just re-fetch that symbol; the app retries with a proper
+back-off (and respects a broker's "try again in N seconds" rate-limit signal).
+
+**2. The data-quality check catches missing days.** Before a backtest, every dataset gets a
+0–100 **quality score**. It now also compares your data against the **NSE trading calendar**
+(weekends and holidays excluded) and flags any **missing trading days** — so a gap left behind
+by an old failed download shows up as *"N missing trading day(s) — possible incomplete download"*
+and lowers the score, instead of passing as clean just because the bars that *are* present look
+fine. A short run of scattered missing days barely moves the score; a solid multi-week hole
+drops it sharply.
+
+> Tip: if the quality check flags missing days on data you downloaded a while ago, that data was
+> likely affected by the old silent-gap behaviour — re-download it once to fill the holes.
+
+## What changed (and what didn't)
+
+**Same 13 features**, identical behaviour: Master / Single / Bulk downloaders, Options Chain,
+Local Converter, Download Logs, Data Management (backup/restore), Settings, No-Code Strategy
+Builder, Strategy & Indicator Plotter, Backtester + Optimizer (Optuna + Grid), Backtest Results,
+and the ML Pattern Finder.
+
+**v8.1 — backlog clear:** trade analytics (MAE/MFE, R-multiple, Kelly) on the Backtester; per-trade
+**India tax-format CSV** export; no-code **higher-timeframe trend bias** + **intraday square-off (MIS)**
+in the strategy builder; batch runs now appear in the leaderboard with reproducibility hashes;
+consistent timestamp handling; per-run error reports; and portable tests (set `QUANTDESK_TEST_CSV`).
+
+**Faster:**
+- Vectorised the slow per-bar indicators (ALMA, Linear-Regression Slope, R-Squared) — proven
+  numerically identical to the originals (`tests/test_parity.py`).
+- Compiled-strategy bytecode caching (no re-parsing each run / optimiser trial).
+- Centralised, cached settings, master list and data loads.
+- Vectorised trade-log enrichment (no per-row Python loops).
+
+**More robust / accessible (nothing removed):**
+- Local tools (backtester, strategy builder, settings, converter, results, ML…) now work
+  **without** a broker login — only the live downloaders/options need authentication.
+- One database layer, one settings accessor, structured logging.
+- Recovery scan now handles both `_to_` and plain filename formats.
+- Multi-output indicators (Supertrend, Stochastic, Keltner, Donchian) are now selectable
+  everywhere (the monolith omitted them on the Plotter & ML pages).
+
+**v6 — honest results, audit fixes & multi-format saving (see CHANGELOG.md):**
+- Out-of-sample optimiser validation, real India statutory charges, data-quality gate, QuantStats
+  tearsheet, Results leaderboard, reproducibility hashes.
+- A multi-agent audit then fixed real bugs: ML Pattern Finder crash, short trailing-stop never
+  ratcheting (+ a latent crash), double-counted charges, Optuna integer params, presets dropping
+  position sizing, and the tab-switch / search lag (instrument selector re-scan).
+- Corporate-actions split download crash fixed (int64 Volume on pandas ≥ 3).
+- CSV + Parquet dual-format saving with separate folders.
+- **v6.1 chart redesign** — oscillators (RSI/ADX/Stochastic/MACD/…) render in their own stacked
+  panels with guide lines instead of being crushed onto the price axis; WebGL + candle
+  downsampling + intraday gap-collapse; optional engine-native Bokeh "Pro chart" toggle.
+
+**v8.0 — data integrity (reliable downloads):**
+- **Silent chunk loss fixed** — a download chunk that fails all retries is now logged, surfaced
+  to you, and excluded from the file's advertised date range, instead of being swallowed as an
+  empty result that left an invisible hole. Retries use exponential back-off with jitter and
+  honour a broker's HTTP 429 `Retry-After`.
+- **Calendar-aware quality gate** — the data-quality score now detects **missing NSE trading
+  days** (weekends/holidays excluded), so a multi-week gap from an old failed download is caught
+  and flagged rather than passing as clean. See *"Reliable downloads & data integrity"* above.
+
+## Architecture
+
+```
+app_main.py            thin Streamlit entry: auth sidebar, nav, page dispatch
+quantdesk/
+  config.py            env, paths, constants
+  core/                db · settings_repo · logging · cache
+  data/                loader · resample · corporate_actions · master_list · quality · recovery
+  brokers/             base · upstox · zerodha · dhan · downloader (async)
+  strategy/            models · indicators · codegen · compiler · presets
+  backtest/            worker · engine · optimizer · batch · metrics
+  ml/patterns.py       XGBoost importance + decision-tree rules
+  viz/charts.py        Plotly helpers
+  ui/components.py     shared widgets + page context
+  ui/pages/*.py        one render(ctx) module per page
+tests/                 unit tests + numeric parity harness + AppTest UI drivers
+modular.json           live file-by-file build / verification index
 ```
 
-Both open a Streamlit dashboard at `http://localhost:8501`.
+Backend modules never import Streamlit, so they run inside multiprocessing workers and tests.
 
----
-
-## ✨ Features (both editions)
-
-**Data**
-- Multi-broker async downloader (Upstox / Zerodha / Dhan) — fast chunked, RAM-safe.
-- Master / Single / Bulk downloaders, NIFTY 50 & BANK presets, saved symbol templates.
-- Options-chain historical data (Upstox), with strike-window selection + timeframe extraction.
-- Corporate-actions sanitisation: splits/bonus back-adjustment, dividends, rights (TERP).
-- Local timeframe converter (1-min → any TF), download logs, backup/restore.
-
-**Strategy & backtest**
-- No-code Strategy Builder: 20+ indicators, AND/OR buy/sell rules, regime (no-trade) filter,
-  advanced range zones, full risk management (SL/TP, trailing, long/short, position sizing).
-- Backtester on `backtesting.py` with India-style commission + slippage, year-wise performance,
-  enriched trade log, interactive Plotly charts.
-- Optimizer: **Optuna** (Bayesian) and **Grid** search.
-- Backtest results database + ML Pattern Finder (XGBoost importance + decision-tree rules).
-
----
-
-## 🆕 What's new in v6 — *Audit Hardening, Speed & Multi-Format Saving*
-
-- **Faster UI** — tab switches and search no longer rescan the 141k-row instrument list every
-  keystroke; the master list is a shared singleton + 24h disk cache (startup ~10s → ~0.8s).
-- **Audit fixes** — a multi-agent audit caught and fixed real bugs: ML Pattern Finder crash,
-  short trailing-stop never ratcheting (+ a latent crash), double-counted charges, Optuna integer
-  params, and presets dropping position sizing.
-- **Corporate-actions download crash** fixed (int64 Volume on pandas ≥ 3).
-- **CSV + Parquet saving** — choose Parquet / CSV / **Both** in Settings, with an optional
-  separate CSV folder; each download page now has both a Parquet and a CSV folder input.
-- **Chart redesign (v6.1)** — oscillators (RSI/ADX/Stochastic/MACD/…) now render in their **own
-  stacked panels** with guide lines instead of being crushed onto the price axis; price-scale
-  indicators stay overlaid. Faster (WebGL, candle downsampling, intraday gap-collapse) and an
-  optional engine-native **Bokeh "Pro chart"** toggle.
-- **41 passing tests** (parity still byte-exact).
-
-## 🆕 What's new in v5 — *Honest Numbers*
-
-- **Out-of-sample validation** — the optimizer tunes on 70% and reports the honest out-of-sample
-  result on unseen data, with an IS-vs-OOS comparison + overfitting warning.
-- **Real India charges** — Decimal STT/stamp/exchange/SEBI/brokerage/18% GST per segment, shown as
-  a Gross-vs-Net P&L panel.
-- **Data-quality gate** enforced before every backtest (warn/block).
-- **QuantStats** institutional tearsheet + VaR/CVaR/Kelly risk block (HTML export).
-- **Surfaced metrics** (Profit Factor, Expectancy, SQN, Buy & Hold) + a **Results leaderboard**
-  with overlaid equity curves and plain-language 🟢🟡🔴 verdicts.
-- **Fixes** — intrabar trailing stop (and a latent crash), dividends carried through resampling,
-  per-session resample anchoring, reproducibility hashes on every run.
-
-Full feature-gap analysis & roadmap: [`modular history/ROADMAP_v5.md`](modular%20history/ROADMAP_v5.md).
-
-## 🆕 What's new in v4
-
-- **Modular architecture** — 52 small modules instead of one 3,207-line file. See
-  [`modular history/ARCHITECTURE.md`](modular%20history/ARCHITECTURE.md).
-- **Superfast** — vectorised slow indicators (ALMA, Linear-Regression Slope, R-Squared; proven
-  numerically identical), bytecode-cached strategy compilation, cached settings/master-list/data,
-  vectorised trade-log enrichment.
-- **Fixes** — multi-output indicators (Supertrend/Stochastic/Keltner/Donchian) are now selectable
-  on the Plotter & ML pages; recovery scan handles both filename formats; optimizer "Equity Final"
-  metric fixed; cleaner stats rendering.
-- **More accessible** — local tools (backtester, builder, settings, converter, results, ML) work
-  **without** a broker login; only the live downloaders/options need authentication.
-- **Tested** — unit tests, a numeric parity harness, and Streamlit AppTest UI drivers
-  (`modular history/tests/`). Build/verification is tracked file-by-file in
-  [`modular history/modular.json`](modular%20history/modular.json).
-
----
-
-## ⚙️ Configuration
-
-- Broker API keys go in a local `.env` (never committed). Example:
-  ```env
-  UPSTOX_API_KEY=your_key
-  UPSTOX_API_SECRET=your_secret
-  UPSTOX_REDIRECT_URI=http://localhost:8501
-  ```
-- Commission, slippage, capital and data paths are editable in the **Settings** page.
-
----
-
-## ✅ Verify (v4)
+## Verify
 
 ```bat
-cd "modular history"
 python -m pytest tests/test_units.py tests/test_parity.py -q
-python tests/verify_app.py        :: renders every page + runs a backtest via Streamlit AppTest
+python tests/verify_app.py        :: drives every page via Streamlit AppTest
+python tests/verify_features.py   :: clicks plotter / builder / settings / optimizer flows
 ```
-
----
-
-## 📚 Docs
-- [Changelog](CHANGELOG.md)
-- [v4 app README](modular%20history/README.md)
-- [v4 Architecture](modular%20history/ARCHITECTURE.md)
-- `Upstox Data Downloader - User Guide.pdf`
-
----
-
-*Disclaimer: for backtesting and research only. Always paper-trade before deploying real capital.*

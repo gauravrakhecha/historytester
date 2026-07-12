@@ -1,8 +1,8 @@
 # Architecture — Quant Engine (Modular Edition, v4)
 
 This document explains how the modular app is structured, how data flows through it, and how
-to extend it. It is the v4 refactor of the original single-file `upstox_app.py` (kept at the
-repo root as the v3 reference). **Behaviour is identical** to v3 — verified by a numeric parity
+to extend it. It is the v4 refactor of the original single-file `upstox_app.py` (now retained only in git
+history at tag v8.1 and earlier). **Behaviour is identical** to v3 — verified by a numeric parity
 harness — but the code is split into small, testable modules and runs faster.
 
 ## Design principles

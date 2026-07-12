@@ -4,27 +4,25 @@
 *.key
 
 # --- databases / runtime data ---
-# NOTE: `data/` must stay ANCHORED (leading slash / explicit path). A bare `data/`
-# also matches the SOURCE package `modular history/quantdesk/data/`, which silently
-# excluded the entire data layer from every release up to v7.8. Do not un-anchor it.
+# NOTE: `data/` must stay ANCHORED (leading slash). A bare `data/` also matches the
+# SOURCE package `quantdesk/data/`, which silently excluded the entire data layer from
+# every release up to v7.8. Do not un-anchor it.
 *.db
 *.db-wal
 *.db-shm
 /data/
-modular history/data/
 backups/
 plots/
 
-# --- modular app runtime artifacts ---
-modular history/quantdesk_data.db
-modular history/plots/
-modular history/strategies/
-modular history/indicator_presets/
-modular history/.master_cache/
-modular history/.workflow/*.log
-modular history/.workflow/*.tmp
-modular history/.workflow/*.jsonl
-modular history/.workflow/modular.lock
+# --- app runtime artifacts ---
+quantdesk_data.db
+strategies/
+indicator_presets/
+.master_cache/
+.workflow/*.log
+.workflow/*.tmp
+.workflow/*.jsonl
+.workflow/modular.lock
 
 # --- python ---
 __pycache__/
