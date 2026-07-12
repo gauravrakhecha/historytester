@@ -1,34 +1,59 @@
 # RESUME_CONTEXT — QuantDesk handoff (read this first)
 
-**As of:** 2026-07-09 · **Current version: v7.8** (published) · Companions:
+**As of:** 2026-07-12 · **Current version: v8.2** (published) · Companions:
 [`STATUS.md`](STATUS.md) · [`progress.json`](progress.json) · [`modular.json`](modular.json)
 
 > One-file handoff so a fresh session continues without re-deriving state. Everything below is
-> verified and on GitHub unless it says "local/unpushed" (nothing is unpushed right now — v7.8 is fully shipped).
+> verified and on GitHub. Nothing is unpushed — v8.2 is fully shipped (historytester + sambhav).
 
 ---
+
+## 0. Latest since v7.8 (read before the older sections)
+- **v8.0 "Data Integrity"** — fixed silent download-chunk loss (`brokers/downloader.py` raises
+  `ChunkDownloadError`, files named by ACTUAL retrieved range), exponential+jitter back-off honouring
+  HTTP 429, and a **calendar-aware quality gate** (missing NSE trading days via bundled `nse_holidays.csv`).
+  Also fixed a `.gitignore` bug that had excluded the whole `quantdesk/data/` source package from every
+  prior release.
+- **v8.1 "Backlog Clear"** — cleared the deferred backlog: trade analytics (MAE/MFE/R-multiple/Kelly on
+  the Backtester), India tax-format CSV export, batch-row leaderboard/repro persistence, loader tz
+  normalization, per-run error reports, Strategy-Builder stable-uuid row keys, options_chain stale-save
+  guard, results delete-confirm, portable tests (`QUANTDESK_TEST_CSV`), and no-code **higher-timeframe EMA
+  bias + intraday square-off (MIS)** in codegen. MBS-domain items (multi-asset portfolio, options legs,
+  benchmark, trade replay, futures-continuous, survivorship) **closed as federate-to-MBS** (see
+  `progress.json → deferred_roadmap`). New `tests/test_backlog_v81.py`.
+- **v8.2 "Repo restructure"** — the maintained app now lives at the **repo ROOT** (the old `modular
+  history/` subfolder + the legacy `upstox_app.py` monolith are gone from the remote; monolith kept in git
+  history at v8.1-). ⚠️ **Local dev still lives in `D:\mbs\historydownloader\modular history\`** — only the
+  REMOTE went flat; the publish step maps the local folder's contents onto the remote root (see the updated
+  `progress.json → how_to_publish_new_version`).
+- Companion system: **MBS** (`D:\mbs`, repo `gauravrakhecha/mbs`) is the VectorBT+NautilusTrader
+  "system of record"; QuantDesk is the data-acquisition + no-code prototyping + ML front end. A strategy
+  "graduates" from QuantDesk to MBS for portfolio/options/benchmark validation.
 
 ## 1. What this project is
 Modular rebuild of the Upstox "Unified Market Data Downloader & Quant Engine" — a 13-page **Streamlit**
 no-code dashboard (download Indian market data → build/backtest/optimise/ML-mine strategies).
 Package `quantdesk/` (~60 modules) + thin `app_main.py`. Engine = **backtesting.py** (single-asset).
-App dir: `D:\mbs\historydownloader\modular history`. Original monolith `upstox_app.py` retained, never edited.
+Local dev dir: `D:\mbs\historydownloader\modular history` (the GitHub remote is flat at the root as of v8.2).
 
 ## 2. Published state (GitHub)
-- **historytester** (private): `main`, tag **v7.8**, GitHub release Latest. Layout: root = v3 monolith,
-  `modular history/` subfolder = this app.
-- **sambhav** (private, collaborator repo): synced to **v7.8**.
-- Publish flow + sambhav sync: `progress.json → how_to_publish_new_version` / `repos.sambhav.sync_procedure`.
-  Commits authored as `gauravrakhecha <gauravrakhecha@gmail.com>` (set repo-local before committing); end
-  commits with `Co-Authored-By: Claude Opus 4.8`. Always secret-scan (gho_/eyJ/-----BEGIN; no .env/.db/pycache).
+- **historytester** (private): `main`, tag **v8.2**, GitHub release Latest. Layout: **FLAT** — the app is at
+  the repo root; `CHANGELOG.md`/`LICENSE`/`.gitignore` also at root.
+- **sambhav** (private, collaborator repo): synced to **v8.2**.
+- Publish flow + sambhav sync: `progress.json → how_to_publish_new_version` / `repos.sambhav.sync_procedure`
+  (updated for the flat layout: clone → replace ROOT app files from the local `modular history/` → scan →
+  tag → push → mirror sambhav). Commits authored as `gauravrakhecha <gauravrakhecha@gmail.com>` (set
+  repo-local first); end commits with `Co-Authored-By: Claude Opus 4.8`. Always secret-scan
+  (gho_/eyJ/-----BEGIN; no .env/.db/pycache; confirm `quantdesk/data/` present).
 
 ## 3. How to run & verify (simpleton venv)
 ```
 VENV = D:\simpleton\historydownloader\.venv\Scripts\python.exe
 DATA = D:\simpleton\historydownloader\data   (real RELIANCE 15Min etc.)
 set PYTHONIOENCODING=utf-8
-<VENV> -m pytest tests\ -q -p no:cacheprovider      # 108 tests (~2.5 min)
+<VENV> -m pytest tests\ -q -p no:cacheprovider      # ~124 tests (~3 min)
 <VENV> tests\verify_app.py                           # AppTest: all 13 pages render + a UI backtest
+<VENV> tests\verify_features.py                      # deep flows: plotter/builder/settings/optimizer
 run.bat                                              # launch the dashboard (localhost:8501)
 ```
 Modular.json index updater: `MODLOG_AGENT=orchestrator <VENV> .workflow/modlog.py file <path> verified "<note>"`.

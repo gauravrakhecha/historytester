@@ -1,6 +1,11 @@
 # CURRENT STATUS — QuantDesk (modular) — resume doc
 
-**Last updated:** 2026-07-12 · **Current version:** **v8.1** · Handoff: [`RESUME_CONTEXT.md`](RESUME_CONTEXT.md) · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
+**Last updated:** 2026-07-12 · **Current version:** **v8.2** · Handoff: [`RESUME_CONTEXT.md`](RESUME_CONTEXT.md) · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
+
+> **v8.2 "Repo restructure" (2026-07-12) — SHIPPED.** The maintained app now lives at the historytester
+> **repo root** (the `modular history/` subfolder and the legacy `upstox_app.py` monolith are removed from
+> the remote; monolith kept in git history at v8.1-). Local dev stays in `modular history/`; the publish
+> step maps it onto the remote root.
 
 > **v8.1 "Backlog Clear" (2026-07-12) — SHIPPED.** Cleared the QuantDesk deferred backlog: loader tz
 > normalization (`data/loader.normalize_timestamps`), per-run error reports (`core/logging.write_error_report`),
