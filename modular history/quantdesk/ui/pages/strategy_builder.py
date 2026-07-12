@@ -10,6 +10,7 @@ Keltner/Donchian, not just MACD/Bollinger) is now selectable in rules (bug fix).
 from __future__ import annotations
 
 import json
+import uuid
 
 import streamlit as st
 
@@ -27,6 +28,16 @@ from quantdesk.strategy.models import (
 
 _STATE_KEYS = ["indicators", "buy_rules", "sell_rules", "no_trade_rules", "range_zones"]
 ZONE_ACTIONS = ["Normal Trading", "Block New Entries", "Tighten Trailing Stop", "Close Position & Block"]
+
+
+def _row_id(row: dict) -> str:
+    """Stable per-row id for widget keys. Kept in the row dict so it survives reruns;
+    stripped at preset-serialization time (StrategyConfig.to_dict) so saved JSON stays clean.
+    Fixes delete-row index drift: positional keys made a deleted row leave its widget state
+    on the row that shifted into its slot."""
+    if not row.get("_id"):
+        row["_id"] = uuid.uuid4().hex[:8]
+    return row["_id"]
 
 
 def _restore_from_preset(data: dict):
@@ -52,6 +63,10 @@ def _restore_from_preset(data: dict):
     st.session_state["breakeven_trigger_pct"] = rm.get("breakeven_trigger_pct", 0.0)
     st.session_state["partial_exit_pct"] = rm.get("partial_exit_pct", 0.0)
     st.session_state["partial_trigger_pct"] = rm.get("partial_trigger_pct", 0.0)
+    st.session_state["htf_bias"] = rm.get("htf_bias", False)
+    st.session_state["htf_minutes"] = rm.get("htf_minutes", 60)
+    st.session_state["htf_ema_period"] = rm.get("htf_ema_period", 50)
+    st.session_state["intraday_square_off"] = rm.get("intraday_square_off", False)
     # position sizing (preserved across save/load — was previously lost)
     st.session_state["pos_size_type"] = data.get("pos_size_type", "Fixed Value per Trade (₹) (Default)")
     st.session_state["fixed_pos_value"] = data.get("fixed_pos_value", 50000.0)
@@ -79,6 +94,10 @@ def _current_export() -> dict:
             "breakeven_trigger_pct": st.session_state.get("breakeven_trigger_pct", 0.0),
             "partial_exit_pct": st.session_state.get("partial_exit_pct", 0.0),
             "partial_trigger_pct": st.session_state.get("partial_trigger_pct", 0.0),
+            "htf_bias": st.session_state.get("htf_bias", False),
+            "htf_minutes": st.session_state.get("htf_minutes", 60),
+            "htf_ema_period": st.session_state.get("htf_ema_period", 50),
+            "intraday_square_off": st.session_state.get("intraday_square_off", False),
         },
         "pos_size_type": st.session_state.get("pos_size_type", "Fixed Value per Trade (₹) (Default)"),
         "fixed_pos_value": st.session_state.get("fixed_pos_value", 50000.0),
@@ -255,20 +274,21 @@ def render(ctx):
 
     def render_rules(rule_list, list_name):
         for i, rule in enumerate(rule_list):
+            rid = _row_id(rule)  # STABLE per-row key so deleting a row doesn't shift widget state
             c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 2, 1])
-            logic = c1.selectbox("Logic", ["IF", "AND", "OR"] if i > 0 else ["IF"], key=f"{list_name}_log_{i}")
-            var1 = c2.selectbox("Var 1", variables, index=variables.index(rule["var1"]) if rule["var1"] in variables else 0, key=f"{list_name}_v1_{i}")
-            op = c3.selectbox("Operator", OPERATORS, index=OPERATORS.index(rule["operator"]) if rule["operator"] in OPERATORS else 0, key=f"{list_name}_op_{i}")
-            is_num = c4.checkbox("Is Number?", value=rule.get("is_num", False), key=f"{list_name}_isnum_{i}")
+            logic = c1.selectbox("Logic", ["IF", "AND", "OR"] if i > 0 else ["IF"], key=f"{list_name}_log_{rid}")
+            var1 = c2.selectbox("Var 1", variables, index=variables.index(rule["var1"]) if rule["var1"] in variables else 0, key=f"{list_name}_v1_{rid}")
+            op = c3.selectbox("Operator", OPERATORS, index=OPERATORS.index(rule["operator"]) if rule["operator"] in OPERATORS else 0, key=f"{list_name}_op_{rid}")
+            is_num = c4.checkbox("Is Number?", value=rule.get("is_num", False), key=f"{list_name}_isnum_{rid}")
             if is_num:
                 try:
                     default_val = float(rule.get("var2", 0))
                 except (ValueError, TypeError):
                     default_val = 0.0
-                var2 = c4.number_input("Value", value=default_val, key=f"{list_name}_v2num_{i}")
+                var2 = c4.number_input("Value", value=default_val, key=f"{list_name}_v2num_{rid}")
             else:
-                var2 = c4.selectbox("Var 2", variables, index=variables.index(rule["var2"]) if rule["var2"] in variables else 0, key=f"{list_name}_v2var_{i}")
-            if c5.button("❌", key=f"{list_name}_rm_{i}"):
+                var2 = c4.selectbox("Var 2", variables, index=variables.index(rule["var2"]) if rule["var2"] in variables else 0, key=f"{list_name}_v2var_{rid}")
+            if c5.button("❌", key=f"{list_name}_rm_{rid}"):
                 new_list = st.session_state[list_name].copy()
                 new_list.pop(i)
                 st.session_state[list_name] = new_list
@@ -299,17 +319,18 @@ def render(ctx):
     st.subheader("Step 2.75: Advanced Range Management (Optional)")
     st.markdown("Define **indicator value zones** with specific trading behaviours (block entries, tighten stop, etc.).")
     for i, zone in enumerate(st.session_state["range_zones"]):
+        rid = _row_id(zone)  # STABLE per-row key (delete-row drift fix)
         zc1, zc2, zc3, zc4, zc5, zc6, zc7 = st.columns([2, 1.5, 1.5, 2, 2, 2, 0.8])
         zone_indicator_opts = available_vars.copy()
         cur_idx = zone_indicator_opts.index(zone["indicator"]) if zone["indicator"] in zone_indicator_opts else 0
-        zone["indicator"] = zc1.selectbox("Indicator", zone_indicator_opts, index=cur_idx, key=f"rz_ind_{i}")
-        zone["min_val"] = zc2.number_input("Min", value=float(zone["min_val"]), step=0.01, format="%.2f", key=f"rz_min_{i}")
-        zone["max_val"] = zc3.number_input("Max", value=float(zone["max_val"]), step=0.01, format="%.2f", key=f"rz_max_{i}")
-        zone["label"] = zc4.text_input("Label", value=zone.get("label", ""), key=f"rz_lbl_{i}")
+        zone["indicator"] = zc1.selectbox("Indicator", zone_indicator_opts, index=cur_idx, key=f"rz_ind_{rid}")
+        zone["min_val"] = zc2.number_input("Min", value=float(zone["min_val"]), step=0.01, format="%.2f", key=f"rz_min_{rid}")
+        zone["max_val"] = zc3.number_input("Max", value=float(zone["max_val"]), step=0.01, format="%.2f", key=f"rz_max_{rid}")
+        zone["label"] = zc4.text_input("Label", value=zone.get("label", ""), key=f"rz_lbl_{rid}")
         act_idx = ZONE_ACTIONS.index(zone["action"]) if zone["action"] in ZONE_ACTIONS else 0
-        zone["action"] = zc5.selectbox("Action", ZONE_ACTIONS, index=act_idx, key=f"rz_act_{i}")
+        zone["action"] = zc5.selectbox("Action", ZONE_ACTIONS, index=act_idx, key=f"rz_act_{rid}")
         if zone["action"] == "Tighten Trailing Stop":
-            zone["tight_pct"] = zc6.number_input("Tight SL %", value=float(zone.get("tight_pct", 1.0)), min_value=0.1, step=0.1, key=f"rz_tpct_{i}")
+            zone["tight_pct"] = zc6.number_input("Tight SL %", value=float(zone.get("tight_pct", 1.0)), min_value=0.1, step=0.1, key=f"rz_tpct_{rid}")
         else:
             zc6.write("")
             zone["tight_pct"] = 0
@@ -432,6 +453,25 @@ def render(ctx):
     st.session_state["breakeven_trigger_pct"] = breakeven_trigger_pct
     st.session_state["partial_exit_pct"] = partial_exit_pct
     st.session_state["partial_trigger_pct"] = partial_trigger_pct
+
+    st.markdown("**Higher-timeframe bias & intraday square-off** (optional)")
+    htf_c1, htf_c2, htf_c3, sq_c = st.columns([1.4, 1, 1, 1.6])
+    htf_bias = htf_c1.checkbox(
+        "📊 Higher-TF trend bias", value=bool(st.session_state.get("htf_bias", False)),
+        help="Only take LONGS when price is above a higher-timeframe EMA (and SHORTS when below) — "
+             "trade with the bigger trend. Computed by resampling this instrument's data.")
+    htf_minutes = htf_c2.number_input("HTF minutes", value=int(st.session_state.get("htf_minutes", 60)),
+                                      min_value=1, step=5, disabled=not htf_bias)
+    htf_ema_period = htf_c3.number_input("HTF EMA", value=int(st.session_state.get("htf_ema_period", 50)),
+                                         min_value=1, step=1, disabled=not htf_bias)
+    intraday_square_off = sq_c.checkbox(
+        "🕒 Intraday square-off (MIS)", value=bool(st.session_state.get("intraday_square_off", False)),
+        help="Flatten any open position at each session's last bar — no overnight carry. For intraday "
+             "(minute) data; on daily data every bar is its own session so this has no effect.")
+    st.session_state["htf_bias"] = htf_bias
+    st.session_state["htf_minutes"] = htf_minutes
+    st.session_state["htf_ema_period"] = htf_ema_period
+    st.session_state["intraday_square_off"] = intraday_square_off
 
     # --- Compile -----------------------------------------------------------
     st.subheader("Compile Strategy")

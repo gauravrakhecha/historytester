@@ -77,6 +77,11 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
     has_breakeven = breakeven_trigger_pct > 0
     has_partial = partial_exit_pct > 0 and partial_trigger_pct > 0
     is_kelly = pos_size_type in ("Half-Kelly (Adaptive)", "Full Kelly (Adaptive)")
+    # v8.1 — multi-timeframe bias + intraday square-off
+    htf_bias = bool(getattr(rm, "htf_bias", False))
+    htf_minutes = int(getattr(rm, "htf_minutes", 60) or 60)
+    htf_ema_period = int(getattr(rm, "htf_ema_period", 50) or 50)
+    intraday_square_off = bool(getattr(rm, "intraday_square_off", False))
 
     has_zones = len(range_zones) > 0
 
@@ -133,6 +138,21 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
         code += "        self._highest_since_entry = 0\n"
         code += "        self._lowest_since_entry = float('inf')\n"
 
+    if htf_bias:
+        # Higher-timeframe EMA trend bias: resample the base close to the HTF, take an EMA,
+        # forward-fill it back onto the base bars. Longs only above it, shorts only below.
+        code += "        _htf_idx = pd.DatetimeIndex(self.data.index)\n"
+        code += "        _htf_close = pd.Series(np.asarray(self.data.Close), index=_htf_idx)\n"
+        code += f"        _htf_ema_res = _htf_close.resample('{htf_minutes}min').last().dropna().ewm(span={htf_ema_period}, adjust=False).mean()\n"
+        code += "        _htf_ema_full = _htf_ema_res.reindex(_htf_idx, method='ffill').to_numpy()\n"
+        code += "        self._htf_ema = self.I(lambda: _htf_ema_full, name='HTF_EMA', overlay=True)\n"
+
+    if intraday_square_off:
+        # Precompute (from the full index) which bars are the LAST bar of their session/day.
+        code += "        _sq_days = pd.Series(pd.DatetimeIndex(self.data.index)).dt.normalize().to_numpy()\n"
+        code += "        self._session_last = (np.append(_sq_days[:-1] != _sq_days[1:], True)\n"
+        code += "                              if len(_sq_days) else np.array([], dtype=bool))\n"
+
     # next()
     code += "\n    def next(self):\n"
     code += "        if len(self.data.Close) < 2: return\n"
@@ -148,6 +168,14 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
     code += "                earned = rp * self._prev_position_size\n"
     code += "                self.rights_premium_earned += earned\n"
     code += "                self._broker._cash += earned\n"
+
+    if intraday_square_off:
+        code += "        # Intraday square-off (MIS): flatten at each session's last bar (no overnight carry)\n"
+        code += "        _sq_i = len(self.data.Close) - 1\n"
+        code += "        if _sq_i < len(self._session_last) and self._session_last[_sq_i]:\n"
+        code += "            if self.position: self.position.close()\n"
+        code += "            self._prev_position_size = self.position.size\n"
+        code += "            return\n"
 
     if has_partial:  # reset the one-scale-out-per-trade flag whenever we are flat
         code += "        if not self.position: self._scaled_out = False\n"
@@ -306,6 +334,13 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
     code += f"        _buy_signal = {buy_cond_str}\n"
     code += f"        _sell_signal = {sell_cond_str}\n"
 
+    if htf_bias:  # higher-timeframe trend bias gate (NaN during warm-up -> blocks entries)
+        code += "        _htf_long_ok = bool(self.data.Close[-1] > self._htf_ema[-1])\n"
+        code += "        _htf_short_ok = bool(self.data.Close[-1] < self._htf_ema[-1])\n"
+    else:
+        code += "        _htf_long_ok = True\n"
+        code += "        _htf_short_ok = True\n"
+
     code += "        _block_new_entries = False\n"
     if has_regime:
         code += "        if _no_trade_zone:\n"
@@ -326,7 +361,7 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
         code += "            if self.position.is_short: self.position.close()\n"
     if strat_dir in ["Long & Short", "Long Only"]:
         sl_str, tp_str = get_sl_tp(is_short=False)
-        code += "            if not self.position.is_long and not _block_new_entries:\n"
+        code += "            if not self.position.is_long and not _block_new_entries and _htf_long_ok:\n"
         if sl_str != "None" or tp_str != "None":
             code += f"                self.buy({size_arg}, sl={sl_str}, tp={tp_str})\n"
         else:
@@ -338,7 +373,7 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
         code += "            if self.position.is_long: self.position.close()\n"
     if strat_dir in ["Long & Short", "Short Only"]:
         sl_str, tp_str = get_sl_tp(is_short=True)
-        code += "            if not self.position.is_short and not _block_new_entries:\n"
+        code += "            if not self.position.is_short and not _block_new_entries and _htf_short_ok:\n"
         if sl_str != "None" or tp_str != "None":
             code += f"                self.sell({size_arg}, sl={sl_str}, tp={tp_str})\n"
         else:

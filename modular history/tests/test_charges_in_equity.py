@@ -14,8 +14,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from quantdesk.costs.india import SEGMENTS, compute_trade_charges, make_fee_model  # noqa: E402
+from tests.conftest import SAMPLE_CSV, SAMPLE_DIR, requires_sample
 
-DATA = r"D:\simpleton\historydownloader\data\RELIANCE\RELIANCE_15Min_2022-06-01_to_2026-06-18.csv"
+pytestmark = requires_sample
+
+DATA = SAMPLE_CSV
 
 
 def _ema_code():

@@ -3,19 +3,24 @@ import sys
 import warnings
 from pathlib import Path
 
+import glob  # noqa: E402
+import os  # noqa: E402
+
 import numpy as np
 import pandas as pd
 import pytest
+
+from tests.conftest import SAMPLE_CSV, SAMPLE_DIR, requires_sample
+
+pytestmark = requires_sample
 
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-DATA_REL = r"D:\simpleton\historydownloader\data\RELIANCE\RELIANCE_15Min_2022-06-01_to_2026-06-18.csv"
-import glob  # noqa: E402
-
-_ONEMIN = next(iter(glob.glob(r"D:\simpleton\historydownloader\data\**\*1Min*.csv", recursive=True)
-                    + glob.glob(r"D:\simpleton\historydownloader\data\**\*1Min*.parquet", recursive=True)), None)
+DATA_REL = SAMPLE_CSV
+_ONEMIN = next(iter(glob.glob(os.path.join(SAMPLE_DIR, "**", "*1Min*.csv"), recursive=True)
+                    + glob.glob(os.path.join(SAMPLE_DIR, "**", "*1Min*.parquet"), recursive=True)), None)
 
 
 def _ema_cfg(**rm):

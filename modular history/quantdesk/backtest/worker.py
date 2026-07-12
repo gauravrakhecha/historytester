@@ -39,7 +39,8 @@ def run_worker(args):
             return {"File": os.path.basename(file_path), "Error": f"Data quality {q['quality_score']} below block threshold"}
 
         if "Timestamp" in df.columns:
-            df["Timestamp"] = pd.to_datetime(df["Timestamp"])
+            from quantdesk.data.loader import normalize_timestamps
+            df["Timestamp"] = normalize_timestamps(df["Timestamp"])  # one tz convention
             df.set_index("Timestamp", inplace=True)
 
         strategy_class = compile_strategy(code)
@@ -75,6 +76,22 @@ def run_worker(args):
             "Rights Premium Earned [₹]": getattr(strat_instance, "rights_premium_earned", 0.0) if strat_instance else 0.0,
             "Equity Final [₹]": safe_stat(stats, "Equity Final [$]"),
         }
+        # persistence-only fields so batch rows reach the leaderboard + are reproducible
+        # (dropped from the on-screen table by run_batch). Commission is applied in-sim,
+        # so Return [%] IS net of the (flat) batch commission.
+        try:
+            import json as _json
+            from quantdesk.backtest.metrics import equity_curve_daily
+            from quantdesk.core import reproducibility as repro
+            res["Net Return [%]"] = res["Return [%]"]
+            res["Dataset Hash"] = repro.hash_file(file_path)
+            eq = equity_curve_daily(stats)
+            res["Equity Curve JSON"] = _json.dumps(
+                {str(pd.Timestamp(k).date()): round(float(v), 2) for k, v in eq.items()})
+        except Exception:  # pragma: no cover - persistence extras never fail the run
+            res.setdefault("Net Return [%]", res.get("Return [%]"))
+            res.setdefault("Dataset Hash", None)
+            res.setdefault("Equity Curve JSON", None)
 
         trades_df = pd.DataFrame()
         if feature_vars and "_trades" in stats and not stats["_trades"].empty:
@@ -83,6 +100,11 @@ def run_worker(args):
 
         return {"File": os.path.basename(file_path), "Stats": res, "Trades": trades_df}
     except Exception as e:  # noqa: BLE001 — surface per-file failure like the original
+        try:  # a per-run error report makes an overnight batch failure diagnosable
+            from quantdesk.core.logging import write_error_report
+            write_error_report({"file": file_path, "init_cash": init_cash, "commission": comm}, e)
+        except Exception:
+            pass
         return {"File": os.path.basename(file_path), "Error": str(e)[:100]}
 
 

@@ -6,12 +6,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from tests.conftest import SAMPLE_CSV, SAMPLE_DIR, requires_sample
+
+pytestmark = requires_sample
 
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-DATA = r"D:\simpleton\historydownloader\data\RELIANCE\RELIANCE_15Min_2022-06-01_to_2026-06-18.csv"
+DATA = SAMPLE_CSV
 
 
 def _ema_code():
@@ -48,7 +51,8 @@ def test_resample_preserves_dividends_and_no_overnight_bar():
     from quantdesk.data.loader import load_ohlcv
     from quantdesk.data.resample import resample_dataframe
     import glob
-    one_min = next(iter(glob.glob(r"D:\simpleton\historydownloader\data\**\*1Min*.*", recursive=True)), None)
+    import os
+    one_min = next(iter(glob.glob(os.path.join(SAMPLE_DIR, "**", "*1Min*.*"), recursive=True)), None)
     if not one_min:
         pytest.skip("no 1-min file available")
     df = load_ohlcv(one_min)

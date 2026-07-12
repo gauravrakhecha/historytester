@@ -20,8 +20,11 @@ from backtesting import Backtest  # noqa: E402
 from quantdesk.data.loader import load_indexed  # noqa: E402
 from quantdesk.strategy import codegen, compiler, indicators  # noqa: E402
 from quantdesk.strategy.models import StrategyConfig  # noqa: E402
+from tests.conftest import SAMPLE_CSV, SAMPLE_DIR, requires_sample
 
-DATA = r"D:\simpleton\historydownloader\data\RELIANCE\RELIANCE_15Min_2022-06-01_to_2026-06-18.csv"
+pytestmark = requires_sample
+
+DATA = SAMPLE_CSV
 KEYS = ["Return [%]", "# Trades", "Win Rate [%]", "Sharpe Ratio", "Max. Drawdown [%]", "Equity Final [$]"]
 
 

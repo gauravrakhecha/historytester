@@ -1,5 +1,42 @@
 # Changelog
 
+## v8.1 — Backlog Clear: trade analytics, tax export, HTF bias & intraday square-off (2026-07-12)
+
+Clears the QuantDesk deferred backlog. Full test suite green + AppTest (all 13 pages, a UI backtest,
+and the builder/settings/optimizer flows). New `tests/test_backlog_v81.py`.
+
+**Analytics & reporting**
+- **Trade-level analytics** on the Backtester: per-trade **MAE / MFE / R-multiple** plus a
+  **Kelly / payoff / expectancy** summary computed from the run's own trades.
+- **India tax-format CSV** export — per-trade STT / stamp / exchange / SEBI / brokerage / GST with
+  gross vs net P&L, for your tax records.
+- **Batch runs** now persist `dataset_hash / segment / net_return / equity_curve`, so folder-batch
+  results appear in the leaderboard and are reproducible like single runs.
+
+**No-code strategy capabilities**
+- **Higher-timeframe trend bias** — take longs only above (and shorts only below) a higher-timeframe
+  EMA, computed by resampling the instrument's own data.
+- **Intraday square-off (MIS)** — flatten any open position at each session's last bar (no overnight
+  carry); for minute data.
+
+**Reliability & housekeeping**
+- **Consistent timestamps** — all loaded data is normalised to one tz convention (tz-naive IST), so
+  mixed `+05:30` / naive CSVs no longer clash.
+- **Per-run error reports** — a failed backtest/download drops a diagnosable JSON (traceback +
+  context) under `.workflow/errors/`.
+- **Strategy Builder** — deleting a rule/zone row no longer shifts the remaining rows' values
+  (stable per-row widget keys).
+- **Options Chain** — changing the underlying/expiry after a fetch clears the stale contracts so you
+  can't save the wrong chain.
+- **Results** — delete now defaults to the run you're viewing and asks for confirmation.
+- **Portable tests** — set `QUANTDESK_TEST_CSV` (and `QUANTDESK_TEST_DIR`); data-backed tests skip
+  cleanly when the file isn't present. No more hardcoded machine paths.
+
+Architecture note: multi-asset portfolio, options legs/Greeks, benchmark (alpha/beta/IR), trade
+replay, futures-continuous contracts and survivorship are intentionally **not** built into
+backtesting.py here — they live in the companion MBS engine (VectorBT + NautilusTrader); a strategy
+"graduates" to MBS for that validation. See `modular history/progress.json → deferred_roadmap`.
+
 ## v8.0 — Data Integrity: no more silent download gaps + calendar-aware quality gate (2026-07-11)
 
 Closes a data-trust blind spot surfaced by an audit of the download → data path. **117 passing tests**

@@ -62,6 +62,11 @@ Local Converter, Download Logs, Data Management (backup/restore), Settings, No-C
 Builder, Strategy & Indicator Plotter, Backtester + Optimizer (Optuna + Grid), Backtest Results,
 and the ML Pattern Finder.
 
+**v8.1 — backlog clear:** trade analytics (MAE/MFE, R-multiple, Kelly) on the Backtester; per-trade
+**India tax-format CSV** export; no-code **higher-timeframe trend bias** + **intraday square-off (MIS)**
+in the strategy builder; batch runs now appear in the leaderboard with reproducibility hashes;
+consistent timestamp handling; per-run error reports; and portable tests (set `QUANTDESK_TEST_CSV`).
+
 **Faster:**
 - Vectorised the slow per-bar indicators (ALMA, Linear-Regression Slope, R-Squared) — proven
   numerically identical to the originals (`tests/test_parity.py`).

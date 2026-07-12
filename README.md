@@ -5,7 +5,7 @@ brokers (Upstox, Zerodha, Dhan) and build + backtest + optimise + ML-mine algori
 strategies — **without writing a line of code**.
 
 > **Two editions in this repo:**
-> - **Modular Edition** (recommended, **latest = v8.0**): a fast, modular, tested package under
+> - **Modular Edition** (recommended, **latest = v8.1**): a fast, modular, tested package under
 >   [`modular history/`](modular%20history/). v4 refactored the monolith 1:1; **v5** added honest
 >   out-of-sample validation, real India charges, a data-quality gate and QuantStats; **v6** is an
 >   audit-hardening + speed + CSV/Parquet-saving release; **v7 "Feature Maturity"** makes the analytics

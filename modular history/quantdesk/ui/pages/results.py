@@ -154,12 +154,20 @@ def render(ctx):
 
         st.markdown("---")
         st.subheader("🗑️ Manage Results")
-        delete_id = st.number_input("Enter Run ID to delete", min_value=1, step=1)
-        if st.button("Delete Run"):
+        # default the delete target to the run currently being inspected above
+        delete_id = st.number_input("Run ID to delete", min_value=1, step=1, value=int(run_id))
+        confirm = st.checkbox(
+            f"Yes, permanently delete run #{int(delete_id)} — this cannot be undone.",
+            key="confirm_delete_run")
+        if st.button("Delete Run", type="primary", disabled=not confirm):
             try:
                 with connect() as conn3:
-                    conn3.execute("DELETE FROM backtests WHERE id=?", (delete_id,))
-                st.success(f"Run #{delete_id} deleted.")
-                st.rerun()
+                    cur = conn3.execute("DELETE FROM backtests WHERE id=?", (int(delete_id),))
+                    deleted = cur.rowcount
+                if deleted:
+                    st.success(f"Run #{int(delete_id)} deleted.")
+                    st.rerun()
+                else:
+                    st.warning(f"No run with ID #{int(delete_id)} — nothing deleted.")
             except Exception as e:
                 st.error(f"Failed to delete: {e}")

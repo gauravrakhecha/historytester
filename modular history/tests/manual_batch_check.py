@@ -10,8 +10,11 @@ sys.path.insert(0, str(ROOT))
 from quantdesk.backtest import batch  # noqa: E402
 from quantdesk.strategy.codegen import build_strategy_code  # noqa: E402
 from quantdesk.strategy.models import StrategyConfig  # noqa: E402
+from tests.conftest import SAMPLE_CSV, SAMPLE_DIR, requires_sample
 
-DATA = r"D:\simpleton\historydownloader\data"
+pytestmark = requires_sample
+
+DATA = SAMPLE_DIR
 
 
 def main():

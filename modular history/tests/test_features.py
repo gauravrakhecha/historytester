@@ -16,8 +16,11 @@ from quantdesk.strategy.codegen import build_strategy_code  # noqa: E402
 from quantdesk.strategy.compiler import compile_strategy  # noqa: E402
 from quantdesk.strategy.models import StrategyConfig, classify_columns  # noqa: E402
 from quantdesk.data.loader import load_indexed  # noqa: E402
+from tests.conftest import SAMPLE_CSV, SAMPLE_DIR, requires_sample
 
-DATA = r"D:\simpleton\historydownloader\data\RELIANCE\RELIANCE_15Min_2022-06-01_to_2026-06-18.csv"
+pytestmark = requires_sample
+
+DATA = SAMPLE_CSV
 
 
 def _df():

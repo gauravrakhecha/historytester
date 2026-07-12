@@ -12,6 +12,9 @@ sys.path.insert(0, str(ROOT))
 
 from quantdesk.strategy.models import classify_columns  # noqa: E402
 from quantdesk.viz.charts import render_plotly_backtest  # noqa: E402
+from tests.conftest import SAMPLE_CSV, SAMPLE_DIR, requires_sample
+
+pytestmark = requires_sample
 
 INDS = [
     {"name": "EMA20", "type": "EMA", "source": "Close", "params": {"period": 20}},
@@ -89,6 +92,6 @@ def test_native_bokeh_html_renders():
         buy_rules=[{"logic": "IF", "var1": "Close", "operator": ">", "var2": "EMA_f", "is_num": False}],
         sell_rules=[{"logic": "IF", "var1": "Close", "operator": "<", "var2": "EMA_f", "is_num": False}],
     )
-    df = load_indexed(r"D:\simpleton\historydownloader\data\RELIANCE\RELIANCE_15Min_2022-06-01_to_2026-06-18.csv").iloc[-1500:]
+    df = load_indexed(SAMPLE_CSV).iloc[-1500:]
     html = engine.native_bokeh_html(df, build_strategy_code(cfg), 100000, 0.0005, 1.0)
     assert len(html) > 1000 and "bokeh" in html.lower()

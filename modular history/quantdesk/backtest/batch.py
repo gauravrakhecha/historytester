@@ -63,6 +63,9 @@ def run_batch(
     table = pd.DataFrame()
     if results:
         table = pd.DataFrame(results)
+        # heavy persistence-only fields don't belong in the on-screen table
+        table = table.drop(columns=[c for c in ("Equity Curve JSON", "Dataset Hash")
+                                    if c in table.columns])
         table.insert(1, "Strategy Direction", strat_dir_name)
         summary = table.select_dtypes(include=["float", "int"]).mean().round(3).to_frame().T
         summary["File"] = "📊 AVERAGE"
@@ -125,5 +128,10 @@ def save_batch_to_db(results: List[dict], strategy_label: str, indicators: list,
             "profit_factor": res.get("Profit Factor"), "expectancy_pct": res.get("Expectancy [%]"),
             "sqn": res.get("SQN"), "buy_hold_return_pct": res.get("Buy & Hold Return [%]"),
             "quality_score": res.get("Data Quality"),
+            # batch rows now carry the same repro/leaderboard fields as single runs:
+            "segment": "Batch (flat commission)",
+            "net_return_pct": res.get("Net Return [%]", res.get("Return [%]")),
+            "dataset_hash": res.get("Dataset Hash"),
+            "equity_curve_json": res.get("Equity Curve JSON"),
             "config_hash": config_hash, "strategy_hash": strategy_hash, "code_hash": code_hash,
         })

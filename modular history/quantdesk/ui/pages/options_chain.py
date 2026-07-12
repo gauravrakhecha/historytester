@@ -101,9 +101,22 @@ def render(ctx):
                 st.session_state.contracts_df = df_contracts
                 st.session_state.current_expiry = selected_expiry
                 st.session_state.current_symbol = selected_symbol_name
+                st.session_state.current_instrument_key = selected_instrument_key
                 st.success(f"Found {len(contracts)} contracts!")
             else:
                 st.error(f"No contracts found for {selected_expiry}." + (f" ({err})" if err else ""))
+
+    # Stale-save guard: if the underlying/expiry selection changed since the last fetch,
+    # the cached contracts belong to a DIFFERENT chain — drop them so a Save can't write
+    # stale data under the new selection's name.
+    if "contracts_df" in st.session_state:
+        changed_expiry = selected_expiry and st.session_state.get("current_expiry") != selected_expiry
+        changed_underlying = (selected_instrument_key
+                              and st.session_state.get("current_instrument_key") != selected_instrument_key)
+        if changed_expiry or changed_underlying:
+            for k in ("contracts_df", "current_expiry", "current_symbol", "current_instrument_key"):
+                st.session_state.pop(k, None)
+            st.info("Underlying/expiry changed — click **Fetch Option Chain** again to load the new contracts.")
 
     if "contracts_df" in st.session_state:
         df = st.session_state.contracts_df

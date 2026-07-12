@@ -103,6 +103,11 @@ class RiskManagement:
     breakeven_trigger_pct: float = 0.0  # move stop to entry once price moves this % in favour (0 = off)
     partial_exit_pct: float = 0.0       # % of the position to bank at the first target (0 = off)
     partial_trigger_pct: float = 0.0    # favourable move % that triggers the partial exit (0 = off)
+    # v8.1 — multi-timeframe higher-TF trend bias + intraday square-off (MIS)
+    htf_bias: bool = False              # only take longs above / shorts below a higher-TF EMA
+    htf_minutes: int = 60               # higher-timeframe resample interval (minutes)
+    htf_ema_period: int = 50            # EMA length on the higher-timeframe series
+    intraday_square_off: bool = False   # flatten any open position at each session's last bar
 
     def to_dict(self) -> dict:
         return {
@@ -119,6 +124,10 @@ class RiskManagement:
             "breakeven_trigger_pct": self.breakeven_trigger_pct,
             "partial_exit_pct": self.partial_exit_pct,
             "partial_trigger_pct": self.partial_trigger_pct,
+            "htf_bias": self.htf_bias,
+            "htf_minutes": self.htf_minutes,
+            "htf_ema_period": self.htf_ema_period,
+            "intraday_square_off": self.intraday_square_off,
         }
 
     @classmethod
@@ -138,6 +147,10 @@ class RiskManagement:
             breakeven_trigger_pct=d.get("breakeven_trigger_pct", 0.0),
             partial_exit_pct=d.get("partial_exit_pct", 0.0),
             partial_trigger_pct=d.get("partial_trigger_pct", 0.0),
+            htf_bias=d.get("htf_bias", False),
+            htf_minutes=d.get("htf_minutes", 60),
+            htf_ema_period=d.get("htf_ema_period", 50),
+            intraday_square_off=d.get("intraday_square_off", False),
         )
 
 
@@ -158,13 +171,18 @@ class StrategyConfig:
 
     def to_dict(self) -> dict:
         """Preset JSON shape. Superset of the original: also persists position sizing so a
-        reloaded preset doesn't silently revert to defaults (Fixed ₹50000, lot 1)."""
+        reloaded preset doesn't silently revert to defaults (Fixed ₹50000, lot 1).
+
+        The builder tags rows with a transient ``_id`` (stable widget keys); it's stripped
+        here so saved presets stay clean and byte-stable across sessions."""
+        def _clean(rows):
+            return [{k: v for k, v in r.items() if k != "_id"} for r in rows]
         return {
-            "indicators": self.indicators,
-            "buy_rules": self.buy_rules,
-            "sell_rules": self.sell_rules,
-            "no_trade_rules": self.no_trade_rules,
-            "range_zones": self.range_zones,
+            "indicators": _clean(self.indicators),
+            "buy_rules": _clean(self.buy_rules),
+            "sell_rules": _clean(self.sell_rules),
+            "no_trade_rules": _clean(self.no_trade_rules),
+            "range_zones": _clean(self.range_zones),
             "risk_management": self.risk_management.to_dict(),
             "pos_size_type": self.pos_size_type,
             "fixed_pos_value": self.fixed_pos_value,

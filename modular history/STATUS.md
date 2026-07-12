@@ -1,6 +1,17 @@
 # CURRENT STATUS — QuantDesk (modular) — resume doc
 
-**Last updated:** 2026-07-11 · **Current version:** **v8.0** · Handoff: [`RESUME_CONTEXT.md`](RESUME_CONTEXT.md) · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
+**Last updated:** 2026-07-12 · **Current version:** **v8.1** · Handoff: [`RESUME_CONTEXT.md`](RESUME_CONTEXT.md) · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
+
+> **v8.1 "Backlog Clear" (2026-07-12) — SHIPPED.** Cleared the QuantDesk deferred backlog: loader tz
+> normalization (`data/loader.normalize_timestamps`), per-run error reports (`core/logging.write_error_report`),
+> portable tests (`QUANTDESK_TEST_CSV`/`DIR` env + skip-if-missing, no more hardcoded `D:\simpleton`),
+> trade analytics **MAE/MFE/R-multiple + Kelly** (`metrics.enrich_trade_analytics`/`trade_kelly`, shown on the
+> Backtester), **batch rows** now persist `dataset_hash/segment/net_return_pct/equity_curve_json` (leaderboard +
+> repro), Strategy-Builder **stable-uuid row keys** (delete-row drift fix), **options_chain stale-save guard**,
+> **results delete-confirm**, **India tax-format CSV** export, and no-code **higher-timeframe EMA bias + intraday
+> square-off (MIS)** in codegen. MBS-domain items (multi-asset portfolio, options legs, benchmark, trade replay,
+> futures-continuous, survivorship) formally **closed as federate-to-MBS** (see `progress.json →
+> deferred_roadmap`). New `tests/test_backlog_v81.py`; full suite green + AppTest.
 
 > **v8.0 "Data Integrity" (2026-07-11) — SHIPPED.** Closes the download→data blind spot found in the
 > MBS-vs-QuantDesk audit. (1) **Silent chunk loss fixed** — `brokers/downloader.py` no longer swallows a

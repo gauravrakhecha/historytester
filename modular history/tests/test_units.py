@@ -6,12 +6,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from tests.conftest import SAMPLE_CSV, SAMPLE_DIR, requires_sample
+
+pytestmark = requires_sample
 
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-DATA = r"D:\simpleton\historydownloader\data\RELIANCE\RELIANCE_15Min_2022-06-01_to_2026-06-18.csv"
+DATA = SAMPLE_CSV
 
 
 def test_loader_and_resample():

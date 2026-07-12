@@ -8,8 +8,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from quantdesk.risk import sizing, stops  # noqa: E402
+from tests.conftest import SAMPLE_CSV, SAMPLE_DIR, requires_sample
 
-DATA = r"D:\simpleton\historydownloader\data\RELIANCE\RELIANCE_15Min_2022-06-01_to_2026-06-18.csv"
+pytestmark = requires_sample
+
+DATA = SAMPLE_CSV
 
 
 def _cfg(**rm_kwargs):

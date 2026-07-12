@@ -32,6 +32,25 @@ def _read_raw(path: str) -> pd.DataFrame:
     return pd.read_csv(p)
 
 
+def normalize_timestamps(ts: pd.Series) -> pd.Series:
+    """Normalise a Timestamp column to ONE convention: tz-naive IST wall-clock.
+
+    External CSVs are inconsistent — some carry an explicit ``+05:30`` offset
+    (tz-aware), others are naive but already IST. Mixing the two breaks index
+    comparisons and backtesting.py's datetime index. We standardise: a tz-aware
+    series is converted to Asia/Kolkata and the tz dropped (keeping the IST
+    wall-clock); a naive series is left as-is (already IST). Every loaded frame
+    therefore has an identical, comparable tz-naive IST index.
+    """
+    ts = pd.to_datetime(ts, errors="coerce")
+    try:
+        if ts.dt.tz is not None:
+            ts = ts.dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
+    except (AttributeError, TypeError):  # all-NaT / non-datetimelike — leave as-is
+        pass
+    return ts
+
+
 def _cached_frame(path: str) -> pd.DataFrame:
     """Return the parsed frame for ``path`` from cache (keyed on file mtime)."""
     p = Path(path)
@@ -40,7 +59,7 @@ def _cached_frame(path: str) -> pd.DataFrame:
         return _cache[key]
     df = _read_raw(str(p))
     if "Timestamp" in df.columns:
-        df["Timestamp"] = pd.to_datetime(df["Timestamp"])
+        df["Timestamp"] = normalize_timestamps(df["Timestamp"])
     if len(_cache) >= _MAX_ENTRIES:
         _cache.pop(next(iter(_cache)))
     _cache[key] = df

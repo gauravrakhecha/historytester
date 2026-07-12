@@ -438,16 +438,43 @@ def _render_single(ctx, history):
                 if not trades.empty:
                     variables = selectable_columns(st.session_state.get("indicators", []))
                     trades = metrics.enrich_trades(trades, strat_instance, variables)
+                    trades = metrics.enrich_trade_analytics(trades, strat_instance)  # MAE/MFE/R
+                    # trade-level analytics summary (Kelly + expectancy from this run's trades)
+                    k = metrics.trade_kelly(trades)
+                    ka, kb, kc, kd = st.columns(4)
+                    ka.metric("Win rate", f"{k['win_rate']:.1f}%")
+                    kb.metric("Payoff (avg win / avg loss)", f"{k['payoff_ratio']:.2f}")
+                    kc.metric("Expectancy / trade", f"{k['expectancy_pct']:.3f}%")
+                    kd.metric("Half-Kelly size", f"{k['half_kelly'] * 100:.1f}%",
+                              help="Fraction of capital Kelly would risk per trade from THIS run's "
+                                   "win-rate × payoff. Half-Kelly is the conservative default; a "
+                                   "non-positive edge sizes at zero.")
                     for col in trades.select_dtypes(include=["float"]).columns:
                         trades[col] = trades[col].round(3)
                     st.dataframe(trades, use_container_width=True)
-                    st.download_button(
-                        label="📥 Export Detailed Trade Log to CSV",
+                    st.caption("MAE_pct / MFE_pct = worst / best unrealised move during each trade; "
+                               "R_multiple = return ÷ worst adverse excursion.")
+                    dl1, dl2 = st.columns(2)
+                    dl1.download_button(
+                        label="📥 Trade Log (CSV)",
                         data=trades.to_csv(index=False).encode("utf-8"),
                         file_name="enriched_trade_log.csv",
                         mime="text/csv",
                         use_container_width=True,
                     )
+                    try:  # per-trade India tax-format breakdown (statutory charges per trade)
+                        tax_df = metrics.tax_breakdown(trades, segment)
+                        dl2.download_button(
+                            label="🧾 India Tax Format (CSV)",
+                            data=tax_df.to_csv(index=False).encode("utf-8"),
+                            file_name="india_tax_breakdown.csv",
+                            mime="text/csv",
+                            use_container_width=True,
+                            help="Per-trade STT / stamp / exchange / SEBI / brokerage / GST with "
+                                 "gross vs net P&L — for your tax records.",
+                        )
+                    except Exception as _e:  # pragma: no cover - export must never crash the page
+                        dl2.caption(f"Tax export unavailable: {_e}")
                 else:
                     st.info("No trades executed.")
 

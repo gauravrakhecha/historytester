@@ -91,6 +91,113 @@ def enrich_trades(trades: pd.DataFrame, strat_instance, variables) -> pd.DataFra
     return trades
 
 
+def enrich_trade_analytics(trades: pd.DataFrame, strat_instance) -> pd.DataFrame:
+    """Add MAE_pct / MFE_pct / R_multiple columns to a backtesting.py trades frame.
+
+    MAE (max adverse excursion) and MFE (max favourable excursion) are the worst
+    and best UNREALISED moves during each trade, measured from the entry price
+    over the trade's bar window (High/Low), sign-aware for long vs short. The
+    R-multiple normalises the realised return by the worst adverse excursion —
+    a "how many units of pain did each unit of gain cost" measure. Backtesting.py
+    doesn't expose these per trade; we reconstruct them from the price series.
+    """
+    if trades is None or trades.empty or strat_instance is None:
+        return trades
+    try:
+        highs = np.asarray(strat_instance.data.High, dtype="float64")
+        lows = np.asarray(strat_instance.data.Low, dtype="float64")
+    except Exception:  # pragma: no cover - no price series available
+        return trades
+    n = len(highs)
+    out = trades.copy()
+    mae = np.full(len(out), np.nan)
+    mfe = np.full(len(out), np.nan)
+    eb = out["EntryBar"].to_numpy()
+    xb = out["ExitBar"].to_numpy()
+    ep = out["EntryPrice"].to_numpy(dtype="float64")
+    size = out["Size"].to_numpy()
+    for i in range(len(out)):
+        a, b = int(eb[i]), int(min(xb[i], n - 1))
+        if b < a or a < 0 or ep[i] <= 0:
+            continue
+        hi, lo = highs[a:b + 1].max(), lows[a:b + 1].min()
+        if size[i] > 0:  # long
+            mfe[i] = (hi - ep[i]) / ep[i] * 100.0
+            mae[i] = (lo - ep[i]) / ep[i] * 100.0     # <= 0
+        else:            # short
+            mfe[i] = (ep[i] - lo) / ep[i] * 100.0
+            mae[i] = (ep[i] - hi) / ep[i] * 100.0     # <= 0
+    out["MFE_pct"] = mfe
+    out["MAE_pct"] = mae
+    ret_pct = out["ReturnPct"].to_numpy(dtype="float64") * 100.0 if "ReturnPct" in out else np.full(len(out), np.nan)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        r = np.where(np.abs(mae) > 1e-9, ret_pct / np.abs(mae), np.nan)
+    out["R_multiple"] = np.round(r, 3)
+    return out
+
+
+def trade_kelly(trades: pd.DataFrame) -> dict:
+    """Kelly fraction, payoff ratio and expectancy from a trades frame.
+
+    Uses per-trade ReturnPct (scale-independent). full_kelly = p - (1-p)/b where
+    p = win rate and b = avg_win / avg_loss; half_kelly is the conservative
+    default. A non-positive edge yields a non-positive Kelly (don't size up).
+    """
+    zero = {"win_rate": 0.0, "avg_win_pct": 0.0, "avg_loss_pct": 0.0, "payoff_ratio": 0.0,
+            "full_kelly": 0.0, "half_kelly": 0.0, "expectancy_pct": 0.0, "num_trades": 0}
+    if trades is None or trades.empty or "ReturnPct" not in trades:
+        return zero
+    r = trades["ReturnPct"].to_numpy(dtype="float64") * 100.0
+    r = r[~np.isnan(r)]
+    if len(r) == 0:
+        return zero
+    wins, losses = r[r > 0], -r[r < 0]
+    p = len(wins) / len(r)
+    avg_win = float(wins.mean()) if len(wins) else 0.0
+    avg_loss = float(losses.mean()) if len(losses) else 0.0
+    b = avg_win / avg_loss if avg_loss > 0 else 0.0
+    full = (p - (1 - p) / b) if b > 0 else (p if avg_loss == 0 and avg_win > 0 else 0.0)
+    return {
+        "win_rate": round(p * 100.0, 2), "avg_win_pct": round(avg_win, 3),
+        "avg_loss_pct": round(avg_loss, 3), "payoff_ratio": round(b, 3),
+        "full_kelly": round(full, 4), "half_kelly": round(full / 2.0, 4),
+        "expectancy_pct": round(float(r.mean()), 4), "num_trades": int(len(r)),
+    }
+
+
+def tax_breakdown(trades: pd.DataFrame, segment: str) -> pd.DataFrame:
+    """Per-trade India statutory-charge breakdown (the 'tax format' export).
+
+    One row per trade with STT / stamp / exchange / SEBI / brokerage / GST and
+    gross vs net P&L. Buy/sell legs are assigned by direction so the sell-side
+    STT lands on the correct leg for shorts. Engine P&L is already net of
+    charges (in-sim fee model), so gross = net + total charges.
+    """
+    from quantdesk.costs.india import compute_trade_charges
+    if trades is None or trades.empty:
+        return pd.DataFrame()
+    rows = []
+    for _, t in trades.iterrows():
+        size = abs(float(t.get("Size", 0) or 0))
+        ep, xp = float(t.get("EntryPrice", 0) or 0), float(t.get("ExitPrice", 0) or 0)
+        entry_val, exit_val = ep * size, xp * size
+        if float(t.get("Size", 0) or 0) >= 0:            # long: buy at entry, sell at exit
+            buy_val, sell_val = entry_val, exit_val
+        else:                                            # short: sell at entry, buy at exit
+            buy_val, sell_val = exit_val, entry_val
+        ch = compute_trade_charges(segment, buy_val, sell_val)
+        net = round(float(t.get("PnL", 0) or 0), 2)
+        rows.append({
+            "EntryTime": t.get("EntryTime"), "ExitTime": t.get("ExitTime"),
+            "Size": t.get("Size"), "EntryPrice": ep, "ExitPrice": xp,
+            "BuyValue": round(buy_val, 2), "SellValue": round(sell_val, 2),
+            "STT": ch["stt"], "StampDuty": ch["stamp_duty"], "Exchange": ch["exchange"],
+            "SEBI": ch["sebi"], "Brokerage": ch["brokerage"], "GST": ch["gst"],
+            "TotalCharges": ch["total"], "GrossPnL": round(net + ch["total"], 2), "NetPnL": net,
+        })
+    return pd.DataFrame(rows)
+
+
 def extract_scalar_metrics(stats) -> dict:
     """Curated scalar metrics, INCLUDING ones backtesting.py computes but the app buried (#5):
     Profit Factor, Expectancy [%], SQN, Buy & Hold Return [%]."""
