@@ -40,8 +40,8 @@ A modular rebuild of an independent app: the **Upstox "Unified Market Data Downl
 ## 2. Where it's published
 | Repo | Visibility | State | Purpose |
 |---|---|---|---|
-| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v7.8** | main repo (v3 monolith at root + `modular history/` subfolder) |
-| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v7.8** | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
+| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v8.2** | main repo — **FLAT since v8.2**: the app is at the repo ROOT (legacy `upstox_app.py` removed; in history at v8.1-). Local dev still lives in `modular history/`; publish maps it onto the remote root. |
+| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v8.2** | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
 
 Tags: … → v7.0.1 (perf) → v7.5 (Trustworthy Core pt.1: security + charges-in-equity) → v7.6 (pt.2 core: risk-% sizing + max-DD breaker) → v7.7 (pt.2: ATR volatility stops + time stop) → **v7.8 (pt.3: breakeven stop + partial exit/scale-out + adaptive Kelly sizing — Task 3 complete)**. Only `main` exists on historytester.
 
