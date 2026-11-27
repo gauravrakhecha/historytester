@@ -235,6 +235,16 @@ python tests/verify_features.py
 
 ---
 
+## License & Commercial Use (`AGPL-3.0` Dual-Licensing)
+
+- **Open Source License (`AGPL-3.0`):** QuantDesk is free and open-source software licensed under the **GNU Affero General Public License v3.0** (see [LICENSE](LICENSE)).
+- **Network / SaaS Copyleft:** If you modify QuantDesk and either distribute it **or run it as a web/network/SaaS service for other users**, you **must** make the complete source code of your modified version publicly available under `AGPL-3.0`.
+- **Commercial Closed-Source Restriction:** Any commercial entity wishing to deploy modified versions internally as a closed product/service without open-sourcing changes back to the community under `AGPL-3.0` must obtain a separate **commercial license** from the maintainer (`gauravrakhecha@gmail.com`).
+- **Contributing:** See [CONTRIBUTING.md](CONTRIBUTING.md) before opening Pull Requests.
+- **Third-Party Notices:** Vendored [`openalgo-charts`](quantdesk/viz/assets/openalgo-charts/) v2.7.5 is licensed under Apache-2.0 with its original `LICENSE` and `NOTICE` preserved cleanly.
+
+---
+
 ## Security & Trading Disclaimer
 
 - **Secrets:** Never commit `.env`, SQLite `.db` files, or API keys. `.gitignore` excludes `.env`, `*.db`, `data/`, `plots/`, `.venv/`, and local caches.

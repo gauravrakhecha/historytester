@@ -7,7 +7,14 @@ name = "quantdesk"
 version = "9.0.0"
 description = "Unified Indian market data downloader, no-code strategy builder, and backtesting engine"
 readme = "README.md"
+license = "AGPL-3.0-or-later"
 requires-python = ">=3.11"
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "streamlit>=1.50",
     "pandas>=3.0",

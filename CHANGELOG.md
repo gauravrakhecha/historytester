@@ -9,6 +9,7 @@ Major architectural release transforming QuantDesk into a complete offline-capab
 - **OpenAlgo Ecosystem Integration & `📡 Data Hub & OpenAlgo`:** Unified sidebar broker selection (`Upstox` | `OpenAlgo` for 38+ brokers), strict Marshmallow REST v1 data adapter (`/api/v1/history`, `/search`, `/ping`, `/analyzer`), Data Coverage Catalog with provisional-bar-safe incremental top-up, bulk ZIP export, and loose-coupled OpenAlgo Web/Desktop/sidecar status monitoring.
 - **Live Operations Monitor, Risk Guard & Bot Exporter (`🚦 Live Monitor & Deploy`):** Account telemetry (`/funds`, `/positionbook`, `/orderbook`, `/tradebook`), pre-trade kill switches (`daily_loss_limit`, `max_trades_per_day`, `max_open_positions`, duplicate-bar cooldown, explicit `live_confirmed`), isolated `signal_runner` (`alert_only` -> `sandbox` -> `live`), standalone OpenAlgo Python script generator, headless Flask blueprint, and `pyproject.toml` (`9.0.0`) packaging.
 - **Hardening & Upstox Auth Fix:** HTF EMA causality (`shift(1)`), strict preset & AST validation, `Save to .env` & new-tab Upstox OAuth handling preventing `UDAPI1013`, portable data paths, and expanded automated test coverage (218 tests + 16-page `AppTest`).
+- **Licensing (`AGPL-3.0`):** Upgraded license from `GPL-3.0` to **GNU Affero GPL v3.0 (`AGPL-3.0`)** with commercial dual-licensing notice and added [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## v8.2 — Repo restructure: one app at the root (2026-07-12)
 
