@@ -1,177 +1,43 @@
-# CURRENT STATUS — QuantDesk (modular) — resume doc
+# CURRENT STATUS — QuantDesk v9.0
 
-**Last updated:** 2026-07-12 · **Current version:** **v8.2** · Handoff: [`RESUME_CONTEXT.md`](RESUME_CONTEXT.md) · Machine-readable twin: [`progress.json`](progress.json) · Granular file index: [`modular.json`](modular.json)
-
-> **v8.2 "Repo restructure" (2026-07-12) — SHIPPED.** The maintained app now lives at the historytester
-> **repo root** (the `modular history/` subfolder and the legacy `upstox_app.py` monolith are removed from
-> the remote; monolith kept in git history at v8.1-). Local dev stays in `modular history/`; the publish
-> step maps it onto the remote root.
-
-> **v8.1 "Backlog Clear" (2026-07-12) — SHIPPED.** Cleared the QuantDesk deferred backlog: loader tz
-> normalization (`data/loader.normalize_timestamps`), per-run error reports (`core/logging.write_error_report`),
-> portable tests (`QUANTDESK_TEST_CSV`/`DIR` env + skip-if-missing, no more hardcoded `D:\simpleton`),
-> trade analytics **MAE/MFE/R-multiple + Kelly** (`metrics.enrich_trade_analytics`/`trade_kelly`, shown on the
-> Backtester), **batch rows** now persist `dataset_hash/segment/net_return_pct/equity_curve_json` (leaderboard +
-> repro), Strategy-Builder **stable-uuid row keys** (delete-row drift fix), **options_chain stale-save guard**,
-> **results delete-confirm**, **India tax-format CSV** export, and no-code **higher-timeframe EMA bias + intraday
-> square-off (MIS)** in codegen. MBS-domain items (multi-asset portfolio, options legs, benchmark, trade replay,
-> futures-continuous, survivorship) formally **closed as federate-to-MBS** (see `progress.json →
-> deferred_roadmap`). New `tests/test_backlog_v81.py`; full suite green + AppTest.
-
-> **v8.0 "Data Integrity" (2026-07-11) — SHIPPED.** Closes the download→data blind spot found in the
-> MBS-vs-QuantDesk audit. (1) **Silent chunk loss fixed** — `brokers/downloader.py` no longer swallows a
-> failed chunk as an empty frame: it raises `ChunkDownloadError` (with the date range), logs a WARNING, and
-> returns `DownloadResult(df, failed_ranges, complete)`; the 3 downloader pages warn loudly on any failure and
-> name the file + `downloads_log` by the **actual retrieved range**, not the requested one (bulk adds an
-> "Incomplete" count). (2) **Back-off** now exponential + full jitter, honouring HTTP 429 `Retry-After`.
-> (3) **Calendar-aware quality gate** — `data/quality.py` flags missing NSE trading days (bundled
-> `nse_holidays.csv`); a contiguous multi-week hole lowers the score + raises an issue. Real finding: the
-> RELIANCE 15m fixture has genuine recurring ~1-month Feb–March holes (92 missing days) the old gate rated
-> 95+ and the new one rates 66.6. Full suite **117 green** (was 112). NEXT = the Autonomous Data Agent
-> ([`ROADMAP_v8_data_agent.md`](ROADMAP_v8_data_agent.md) — originally earmarked "v8"; now the milestone
-> after this v8.0 data-integrity release).
-
-> **Read this first after a context reset.** It captures everything needed to continue without re-deriving state.
+**Last updated:** 2026-11-27 · **Current version:** **v9.0.0** · Handoff: [`RESUME_CONTEXT.md`](RESUME_CONTEXT.md) · Machine index: [`progress.json`](progress.json) · Guide: [`README.md`](README.md)
 
 ---
 
-## 1. What this is
-A modular rebuild of an independent app: the **Upstox "Unified Market Data Downloader & Quant Engine"** — a 13-page Streamlit dashboard to download Indian market data (Upstox/Zerodha/Dhan) and build/backtest/optimise/ML-mine no-code strategies.
+## 1. What Shipped in v9.0
 
-- **Original** single-file app: `D:\mbs\historydownloader\upstox_app.py` (3,207 lines) — **retained, never edited**.
-- **This (modular) app:** `D:\mbs\historydownloader\modular history\` → package `quantdesk/` (57 modules) + thin `app_main.py`.
-- **Build is complete and shipped through v7.7.** Not a work-in-progress refactor — it's a maintained product now.
+- **Offline OpenAlgo Charts v2.7.5 + Integrated Chart Backtester Terminal (`📊 Chart Backtester (Terminal)`):**
+  Vendored `openalgo-charts` standalone JS offline inside `quantdesk/viz/assets/openalgo-charts/`. Added [quantdesk/viz/openalgo_terminal.py](quantdesk/viz/openalgo_terminal.py) and [quantdesk/ui/pages/chart_terminal.py](quantdesk/ui/pages/chart_terminal.py) with client-side Bar-by-Bar Replay + HUD, linked Equity/Drawdown panes (`createLinkGroup`), Trade Focus `PriceLine`s, clickable Trade Blotter, and non-destructive parameter tweaks.
+- **No-Code Strategy Builder v2 (`🛠️ Strategy Builder`):**
+  Added Simple (Guided) vs Pro (All Controls) modes, 5 1-click `STARTER_TEMPLATES`, live Plain-English strategy translator, sanity trap checker, Quick Test Preview, readable auto-naming, 4 custom indicator blocks (`Series Math`, `Rolling Stat`, `Bar Shift`, and AST-safe `Custom Formula`), parenthesized condition groups, `NOT`, lookback timing (`bars_ago`, `within_last`, `consecutive`), and intraday entry time windows (`HH:MM`–`HH:MM`).
+- **OpenAlgo Ecosystem Broker & Unified Data Hub (`📡 Data Hub & OpenAlgo`):**
+  Added strict Marshmallow OpenAlgo REST v1 data adapter ([quantdesk/brokers/openalgo.py](quantdesk/brokers/openalgo.py)), simplified sidebar authentication to **`Upstox` | `OpenAlgo`** (covering 38+ brokers via OpenAlgo Web/Desktop), added [quantdesk/data/catalog.py](quantdesk/data/catalog.py) (Data Coverage Catalog, provisional-bar-safe incremental top-up, ZIP export), and [quantdesk/integrations/openalgo_manager.py](quantdesk/integrations/openalgo_manager.py).
+- **Live Operations Monitor, Alerts & Risk-Guarded Execution (`🚦 Live Monitor & Deploy`):**
+  Added [quantdesk/live/](quantdesk/live/__init__.py) (`OpenAlgoClient`, `risk_guard` kill switches, isolated `signal_runner` with research-to-live parity and `alert_only` -> `sandbox` -> `live` workflow), standalone script generator ([quantdesk/strategy/openalgo_export.py](quantdesk/strategy/openalgo_export.py)), optional headless Flask blueprint ([quantdesk/integrations/openalgo_blueprint.py](quantdesk/integrations/openalgo_blueprint.py)), and PEP 621 packaging ([pyproject.toml](pyproject.toml)).
+- **Production Hardening & Upstox Auth Fix:**
+  Fixed HTF EMA causality (`shift(1)`), Upstox OAuth `UDAPI1013` / redirect credential persistence (`Save to .env`, new-tab links, redirect URL code extraction), path-traversal guards, portable data paths, and Streamlit `width="stretch"` compatibility.
 
-## 2. Where it's published
-| Repo | Visibility | State | Purpose |
+---
+
+## 2. Repositories
+
+| Repo | Visibility | Tag / Branch | Purpose |
 |---|---|---|---|
-| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, tag **v8.2** | main repo — **FLAT since v8.2**: the app is at the repo ROOT (legacy `upstox_app.py` removed; in history at v8.1-). Local dev still lives in `modular history/`; publish maps it onto the remote root. |
-| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | synced to **v8.2** | dedicated **collaborator** repo (separate repo = true isolation; GitHub has no per-branch read access) |
+| [gauravrakhecha/historytester](https://github.com/gauravrakhecha/historytester) | private | `main`, `v9.0` | Primary modular QuantDesk repository (flat root layout) |
+| [gauravrakhecha/sambhav](https://github.com/gauravrakhecha/sambhav) | private | `main`, `v9.0` | Dedicated collaborator mirror synced cleanly from `historytester` |
 
-Tags: … → v7.0.1 (perf) → v7.5 (Trustworthy Core pt.1: security + charges-in-equity) → v7.6 (pt.2 core: risk-% sizing + max-DD breaker) → v7.7 (pt.2: ATR volatility stops + time stop) → **v7.8 (pt.3: breakeven stop + partial exit/scale-out + adaptive Kelly sizing — Task 3 complete)**. Only `main` exists on historytester.
+---
 
-## 3. How to run & verify
-```bat
-:: run  (from "modular history")
-run.bat            ::  or  <venv>\python -m streamlit run app_main.py   -> localhost:8501
+## 3. Quick Run & Verification
 
-:: verify  (use the simpleton venv: D:\simpleton\historydownloader\.venv\Scripts\python.exe)
-set PYTHONIOENCODING=utf-8
-<venv>\python -m pytest tests\ -q -p no:cacheprovider        ::  41 tests (~3 min; parity ~85s)
-<venv>\python tests\verify_app.py                            ::  AppTest: all 13 pages + a UI backtest
-<venv>\python tests\verify_features.py                       ::  plotter / builder / settings / optimizer flows
+```powershell
+# Launch dashboard (localhost:8501)
+run.bat
+
+# Automated verification (run from repo root)
+.venv\Scripts\python.exe -m pytest tests/ --ignore=tests/test_downloader.py -p no:cacheprovider -q
+.venv\Scripts\python.exe tests/verify_app.py
+.venv\Scripts\python.exe tests/verify_features.py
 ```
-- **Verification data:** `D:\simpleton\historydownloader\data` (real RELIANCE/RECLTD/…). Seed the app DB's download log via `data.recovery.rebuild_db_from_folder(DATA_DIR)` if dropdowns are empty.
-- **Headless screenshots don't work here** (kaleido can't launch Chrome; Plotly/canvas render blank in the Preview sandbox). Trust AppTest + structural tests; use a real browser for visuals.
 
-## 4. Key versions / env
-Python 3.12 (uv venv) · streamlit 1.58 · plotly 6.8 · bokeh 3.9.1 (transitive) · backtesting 0.6.5 · **pandas ≥ 3** · quantstats 0.0.81. Secrets in `D:\mbs\historydownloader\.env` (Upstox keys) — never commit.
-
-## 5. What's DONE (v6 + v6.1 highlights)
-- **Speed:** master-list `cache_resource` + session cache + vectorised classifier + 24h disk cache; selector no longer rescans 141k rows per keystroke; WAL once; vectorised resample.
-- **Audit fixes (from a multi-agent audit):** ML Finder crash (`ReturnPct`), short trailing-stop ratchet (+ latent crash), tighten-zone dead code, charges double-count, Optuna int params, presets dropping sizing, yearly drawdown sign, quality gate enforced in engine, content-based dataset hash.
-- **Corporate-actions** split download crash (int64 Volume on pandas 3) fixed + tests.
-- **Saving:** Parquet / CSV / **Both** + optional separate CSV folder; per-page Parquet & CSV folder inputs.
-- **Charts (v6.1):** oscillators in their own stacked panels (guide lines), overlays on price, range-scaled markers, WebGL, candle downsampling, intraday gap-collapse; optional engine-native Bokeh "Pro chart" toggle.
-
-## 6. Decisions that are settled (don't re-litigate)
-- **Keep backtesting.py** (no Nautilus/VectorBT). **Keep Plotly** (no Bokeh / no TradingView Lightweight Charts — debated and dropped; the messiness was a design bug, now fixed).
-- Indicator overlay-vs-panel is single-sourced in `config.INDICATOR_PLACEMENT`.
-- Default save format = Both. Local tools work without broker login.
-
-## 7. TO CONTINUE — ⭐ v7.1 "Trustworthy Core" IN PROGRESS → see [`ROADMAP_v7.1_trustworthy_core.md`](ROADMAP_v7.1_trustworthy_core.md)
-
-> After a multi-agent quant-desk audit scored the app **4.8/10** (verified), we chose to fix the top
-> 3 *wrong/dangerous* items (v7.1) BEFORE building the data agent (v8, [`ROADMAP_v8_data_agent.md`](ROADMAP_v8_data_agent.md)).
-> - **✅ Task 1 — AST-whitelist + preset validation (security), DONE 2026-06-28 (local, unpushed):**
->   closes the preset-upload RCE. New `quantdesk/strategy/validation.py` (`assert_safe_ast` in the
->   compiler + `validate_preset` at the upload/load door). `tests/test_security.py` (21); full suite
->   **88 green** (no AST false positives) + AppTest.
-> - **✅ Task 2 — Charges-in-equity, DONE 2026-06-28 (local, unpushed):** `costs.india.make_fee_model(segment)`
->   → a backtesting.py commission callable; threaded `segment`/`slippage` through
->   engine.make_backtest/run_single/native_bokeh_html + wfo.walk_forward + the backtester UI, so
->   Return/Sharpe/DSR/WFO/MC are all net of real charges (Gross-vs-Net panel is now a reconciliation).
->   `tests/test_charges_in_equity.py` (7); full suite **95 green** + AppTest. Real drive: a strategy's
->   gross 20.8%/0.79 Sharpe/95% PSR → 0.7%/0.03/55% net of ₹20k charges.
-> - **✅ Task 3 (core) — DONE 2026-06-28 (local, unpushed):** new `quantdesk/risk/{sizing,stops}.py`
->   (pure, unit-tested; injected into the compiler namespace) + a **"Risk % of Equity per Trade"** sizing
->   mode (sized from the stop distance) + a **max-drawdown circuit-breaker** wired through
->   models/codegen/builder-UI/validation. `tests/test_risk.py` (10); full suite **105 green** + AppTest;
->   real drive: breaker capped DD −11.8%→−10.0%. Deferred pt.2: ATR/breakeven/time stops in codegen,
->   partial exits, Kelly sizing.
-> **Tasks 1 & 2 RELEASED as v7.5; Task 3 (core) RELEASED as v7.6.**
-> - **✅ Task 3 pt.2 — RELEASED as v7.7:** ATR (volatility) stop mode + time stop (`max_bars_in_trade`) +
->   ATR-risk sizing. `tests/test_risk.py` (13); full suite **108 green** + AppTest; drive: time stop capped
->   holding 150→20 bars, ATR stop lifted return 1.8%→5.4%.
-> - **✅ Task 3 pt.3 — RELEASED as v7.8 (2026-07-09):** the final risk controls, all opt-in /
->   default-OFF (parity locked): **breakeven stop** (ratchet open `Trade.sl`→entry after +trigger%), **partial
->   exit / scale-out** (`Position.close(portion=)`, once per trade, composes with breakeven), and **adaptive
->   Half/Full-Kelly sizing** (from the strategy's own `closed_trades`, engaging after `KELLY_MIN_TRADES`=20).
->   Wired through config/models/codegen/compiler-namespace/validation/builder-UI + preset round-trip; drove
->   the real builder widgets (AppTest) → all markers reach generated code. `tests/test_risk.py` (17); full
->   suite **112 green** + AppTest. Drive: partial split 55→60 trades & cut MaxDD −7.82→−7.60; Half-Kelly +42.7%
->   vs Full-Kelly −0.5% on the same synthetic edge; Kelly refuses to size a −edge strategy.
-> **Task 3 COMPLETE.** Trustworthy Core milestone COMPLETE (audit 4.8→~6.0) and fully shipped through
-> **v7.8**. **NEXT = v8** the Autonomous Data Agent
-> ([`ROADMAP_v8_data_agent.md`](ROADMAP_v8_data_agent.md)). Full handoff: [`RESUME_CONTEXT.md`](RESUME_CONTEXT.md).
-
-### Earlier: v7 Feature Maturity RELEASED (A+B+C, v7.0; perf fix v7.0.1) → see [`ROADMAP_v7.md`](ROADMAP_v7.md)
-A multi-agent maturity audit confirmed the user's critique: **Backtester = usable, Optimizer = amateur,
-ML Pattern Finder = amateur/toy** (ML trained on raw absolute features that don't generalize across assets).
-
-- **✅ Phase A — DONE (local, unreleased; 45 tests green):** added 6 normalized indicator types —
-  **Ratio to SMA** (use Volume source for `vol/SMA20(vol)`), **Distance from MA (ATR)**, **MA Slope (ATR)**,
-  **Z-Score**, **Percentile Rank**, **Return (n-bar)**. Implemented as registry types (config placement/guides
-  + `indicators.py` types/param-specs/helpers + `emit_indicator` + compiler namespace), so the **builder,
-  ML finder, and plotter all get them** and they render in their own panels. Tests: `tests/test_features.py`.
-- **✅ Phase B — DONE (2026-06-28, local, unreleased; 56 tests green):** ML rigor in `ml/patterns.py` +
-  `ml_finder.py`. (1) ML finder **defaults to the normalized cross-asset features** (`partition_features`
-  in `indicators.py` + `CROSS_ASSET_COMPARABLE_TYPES`); warns + **per-instrument z-scores raw/absolute
-  features** before bulk concat (`batch.extract_trades` now tags each frame with `Source`). (2)
-  **Time-ordered holdout (70/30 default) or walk-forward k-fold** — rules mined on train, scored OOS.
-  (3) **Significance gate**: per-leaf sample-size floor (config `ML_SAMPLE_FLOOR=30`) → one-sided binomial
-  vs OOS baseline → **Benjamini-Hochberg FDR** (`ML_FDR_ALPHA=0.10`) → **Wilson lower-bound** must still
-  beat baseline. Only survivors → `rules`; the rest → `candidate_rules` (exploratory, with a reject reason).
-  XGBoost importance stays descriptive (full matrix, not gated). Config defaults in `config.py`. Tests:
-  `tests/test_ml_rigor.py` (11: Wilson/binomial/BH primitives, edge-recovered-and-passes, noise→none,
-  k-fold, per-instrument normalization, partition_features, API back-compat). Parity unaffected (legacy
-  `mine_patterns` positional call + old ML tests still green). Verified end-to-end on real RELIANCE trades
-  (defaulting, Source tagging, holdout, gate all correct) + AppTest renders ml_finder.
-- **✅ Phase C — DONE (2026-06-28, local, unreleased; 67 tests green):** optimizer validation.
-  (1) **Probabilistic & Deflated Sharpe** in `backtest/metrics.py` (`probabilistic_sharpe_ratio`,
-  `expected_max_sharpe`, `deflated_sharpe_ratio`, `sharpe_moments`, `validation_stats`) — DSR deflates
-  the winner's Sharpe for the number of configs tried (Bailey/LdP). (2) **Parameter-stability surface**:
-  `optimizer.optimize` now returns `(stats, best, meta)` with the grid `return_heatmap` (was discarded)
-  + Optuna trials/per-trial Sharpes; `engine.run_single` carries it as `info['opt_meta']`; rendered via
-  `charts.parameter_stability_heatmap` (1-D line / 2-D heatmap). (3) **Walk-forward** `backtest/wfo.py`
-  (anchored/rolling: re-optimize per IS window, trade frozen params OOS, stitch OOS equity, report WFE).
-  (4) **Monte-Carlo bootstrap** (`metrics.monte_carlo_bootstrap` + `charts.monte_carlo_fan`): resample
-  the trade sequence → P5/P50/P95 final-equity & worst-drawdown bands + fan chart. Optuna gains a
-  "Probabilistic Sharpe (PSR)" objective. Backtester page surfaces all four (validation panel + stability
-  expander + Monte-Carlo expander + Walk-Forward section). Tests: `tests/test_optimizer_validation.py`
-  (11). Verified end-to-end on real RELIANCE data (PSR/grid-heatmap/Optuna-DSR/MC-bands/WFE all correct —
-  the EMA-crossover's strong IS / weak OOS is correctly flagged by DSR 27% & WFE −1.2).
-- **Released as v7.0 (2026-06-28):** Phases A+B+C shipped together as the "Feature Maturity" milestone
-  (the earlier v7.0-alpha pre-release was Phase A only). Pushed to historytester `main` + tag `v7.0` +
-  GitHub release; sambhav synced to v7.0. Details in `ROADMAP_v7.md`.
-- **⏩ Perf fix — page-switch lag (SHIPPED as v7.0.1, 2026-06-28):** opening the Plotter/Backtester
-  was freezing ~6s on first visit because `compiler.py` (→ `backtesting`+`bokeh` ~2.3s, `pandas_ta`
-  ~1.8s) and `viz/charts.py` (→ `quantstats` ~4.9s) imported those heavy libs at MODULE TOP, so the
-  page-module import paid for them during the nav switch. Made all three **lazy** (compiler imports
-  inside `_namespace()`; charts loads quantstats on demand via `_qs_module()`/`quantstats_available()`;
-  `engine.make_backtest` + plotter button-handler import `backtesting` on use). Page import 6.08s→**0.91s**;
-  heavy libs now load on first compile/run/tearsheet, under existing spinners. 67 tests green; AppTest OK.
-  Pushed to historytester `main` + tag `v7.0.1` + GitHub release; sambhav synced.
-
-**Other backlog (full list in `progress.json` → `deferred_roadmap`):** trade analytics (MAE/MFE, R-multiple,
-Kelly) · Trade Replay · benchmark engine (alpha/beta vs Nifty) · partial exits / ATR stops / risk-% sizing /
-multi-timeframe / intraday square-off · Strategy-Builder delete-row index drift · quality-gate missing-bar
-detection · batch rows persisting hashes/equity · loader tz · portable tests (drop hardcoded `D:\simpleton`) ·
-PDF/Excel export · results delete confirm.
-
-**⚠ Security gate:** `compiler.py` `exec()`s generated code — safe only while inputs are widget-constrained. Add an AST whitelist + preset-schema validation **before** any user-extensibility / custom-formula feature.
-
-## 8. Routine ops
-- **Update the file index:** `MODLOG_AGENT=orchestrator <venv>\python .workflow/modlog.py log <agent> "<msg>"` (also `file/feature/speed/phase/agent`). Writes `modular.json`.
-- **Publish a new version & sync sambhav:** see `progress.json` → `how_to_publish_new_version` and `repos.sambhav.sync_procedure` (clone → sync working tree → secret-scan → commit/tag/release → push; then mirror into sambhav).
-- **Invite collaborator:** `gh api -X PUT repos/gauravrakhecha/sambhav/collaborators/<username> -f permission=pull` (or `push`).
+Legacy planning docs from `v5`–`v8` are archived under [`docs/archive/`](docs/archive/).

@@ -74,7 +74,7 @@ QUALITY_BLOCK_THRESHOLD: float = float(os.getenv("QUANTDESK_QUALITY_BLOCK", "40"
 # least ML_SAMPLE_FLOOR matches, survives Benjamini-Hochberg FDR at ML_FDR_ALPHA,
 # and its Wilson lower-bound win-rate still beats the baseline. Anything weaker is
 # surfaced as an "exploratory candidate" only. (Deliberately conservative — small
-# samples lie; see ROADMAP_v7.md Phase B.)
+# samples lie; see docs/archive/ROADMAP_v7.md Phase B.)
 ML_SAMPLE_FLOOR: int = int(os.getenv("QUANTDESK_ML_SAMPLE_FLOOR", "30"))
 ML_HOLDOUT_FRAC: float = float(os.getenv("QUANTDESK_ML_HOLDOUT_FRAC", "0.3"))
 ML_FDR_ALPHA: float = float(os.getenv("QUANTDESK_ML_FDR_ALPHA", "0.10"))

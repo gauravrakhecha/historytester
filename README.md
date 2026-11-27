@@ -212,6 +212,8 @@ quantdesk/
   integrations/                      openalgo_manager · openalgo_blueprint
   ui/                                components · builder_helpers · pages/*.py (16 modular pages)
 tests/                               Unit, security AST, parity, OpenAlgo charts/bridge & Streamlit AppTest suites
+docs/archive/                        Historical v5-v8 roadmaps & refactor index
+ARCHITECTURE.md / STATUS.md / CHANGELOG.md
 ```
 
 ---

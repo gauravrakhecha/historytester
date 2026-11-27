@@ -1,189 +1,60 @@
 {
- "project": "QuantDesk — Unified Market Data Downloader & Quant Engine (modular edition)",
- "as_of": "2026-07-12",
- "current_version": "v8.2",
- "one_line_status": "v8.1 'Backlog Clear' — cleared the QuantDesk deferred backlog: loader tz normalization, per-run error reports, portable tests (env-var + skip), trade analytics (MAE/MFE/R-multiple/Kelly) surfaced on the Backtester, batch-row repro/leaderboard persistence, Strategy-Builder stable-uuid row keys (delete-drift fix), options_chain stale-save guard, results delete-confirm, India tax-format CSV export, and no-code higher-timeframe EMA bias + intraday square-off (MIS) in codegen. MBS-domain items (multi-asset portfolio, options legs, benchmark, trade replay, futures continuous, survivorship) formally CLOSED as federate-to-MBS. + new tests/test_backlog_v81.py. PRIOR: v8.0 'Data Integrity' SHIPPED (historytester main + tag v8.0; private sambhav synced). Hardens the download->data path: (1) SILENT CHUNK LOSS FIXED — a download chunk that fails all retries no longer returns a silent empty frame; brokers/downloader.py raises ChunkDownloadError (carrying the date range), logs a WARNING, and returns DownloadResult(df, failed_ranges, complete); the 3 downloader UI pa",
- "next_phase": {
-  "id": "v7_1_trustworthy_core",
-  "status": "Trustworthy Core (post-audit) COMPLETE & RELEASED: Task 1 (security) + Task 2 (charges-in-equity) = v7.5; Task 3 core (risk-% sizing + max-DD breaker) = v7.6; Task 3 pt.2 (ATR volatility stops + time stop) = v7.7; Task 3 pt.3 (breakeven stop + partial exit/scale-out + adaptive Half/Full-Kelly sizing) = v7.8 (112 tests green + AppTest). Task 3 FINISHED. NEXT = v8 Autonomous Data Agent (ROADMAP_v8_data_agent.md). Full handoff in RESUME_CONTEXT.md.",
-  "priority": "HIGH",
-  "plan_file": "ROADMAP_v7.md  (implementation-ready)",
-  "why": "Multi-agent maturity audit (run wf_ebc554f3-006; aborted on schema cap but 4/5 reviewers completed, unanimous, recovered from transcripts) confirmed the user's critique: Backtester=usable, Optimizer=amateur, ML Pattern Finder=amateur/toy. ML trains on RAW absolute features (metrics.enrich_trades ~L73-89; ml/patterns.py) that don't generalize across instruments/asset-classes; no holdout/significance; bulk mode concatenates different-scale instruments.",
-  "fix_thesis": "Make features RELATIVE/NORMALIZED & comparable (validated, unanimous): volume/SMA20(volume), EMA slope in ATR units, distance-from-MA in ATR, z-score, rolling percentile rank, n-bar return. Implement as NEW INDICATOR TYPES in the registry so builder + ML + plotter all get them via the single-source pipeline. Then add ML holdout + Wilson/BH-FDR significance, then optimizer validation (Deflated Sharpe, parameter-stability heatmap, walk-forward, Monte-Carlo).",
-  "phases": {
-   "A_normalized_feature_library": "DONE (2026-06-27): 6 new indicator types added — 'Ratio to SMA' (x/SMA, use Volume source for volume-vs-avg), 'Distance from MA (ATR)', 'MA Slope (ATR)', 'Z-Score', 'Percentile Rank', 'Return (n-bar)'. Implemented via config.INDICATOR_PLACEMENT(panel)/PANEL_GUIDES + indicators.INDICATOR_TYPES/PARAM_SPECS + 6 vectorised helpers (ratio_to_sma_vec/dist_from_ma_atr_vec/ma_slope_atr_vec/zscore_vec/pctile_rank_vec/ret_n_vec) + emit_indicator branches + compiler._namespace injection. Builder/ML/plotter all get them via the single-source pipeline; they render in own panels (v6.1). tests/test_features.py (4 tests: formula match, panel placement, codegen+compile+backtest, cross-asset comparability). Full suite 45/45 green.",
-   "B_ml_rigor": "DONE (2026-06-28): ml/patterns.py rewritten + ml_finder.py + indicators.partition_features/CROSS_ASSET_COMPARABLE_TYPES + batch.extract_trades Source tagging + config ML_SAMPLE_FLOOR/ML_HOLDOUT_FRAC/ML_FDR_ALPHA. (1) ML finder DEFAULTS to normalized cross-asset features (v7 set + bounded oscillators); raw/absolute features are warned and per-instrument z-scored (groupby Source) BEFORE bulk concat. (2) Time-ordered holdout (70/30, default) OR walk-forward k-fold (TimeSeriesSplit): rules mined on train, scored OOS via dt leaf->predicate re-evaluation. (3) Gate per leaf: OOS sample-size floor (30) -> one-sided binomial vs OOS baseline -> Benjamini-Hochberg FDR (alpha 0.10) -> Wilson lower-bound must still beat baseline. Survivors -> result['rules'] (OOS win-rate, wilson_lb, p/q, train vs OOS); failures -> result['candidate_rules'] with reject reason. XGBoost importance kept descriptive (full matrix, NOT gated). Helpers wilson_lower_bound/binom_sf/benjamini_hochberg exported. tests/test_ml_rigor.py (11, synthetic+portable). Legacy positional mine_patterns call + old ML tests still green (parity). Verified: full pytest 56 green, AppTest renders ml_finder, real-RELIANCE end-to-end drive (defaulting/Source/holdout/k-fold/gate all correct; thin single-instrument data correctly yields 0 promoted, noise demoted). Effort M.",
-   "C_optimizer_validation": "DONE (2026-06-28): metrics.py +probabilistic_sharpe_ratio/expected_max_sharpe/deflated_sharpe_ratio/sharpe_moments/validation_stats (Bailey-LdP PSR/DSR from daily returns; DSR deflates for #configs tried) + monte_carlo_bootstrap (resample trade ReturnPct -> P5/P50/P95 final-equity & worst-DD bands + per-step fan). optimizer.optimize now returns (stats,best,meta): grid surfaces the previously-discarded return_heatmap; Optuna records trials table + per-trial Sharpes (feeds DSR) + a PSR_OBJECTIVE ('__PSR__') maximize option. engine.run_single carries meta as info['opt_meta']. NEW backtest/wfo.py walk_forward (anchored/rolling: re-optimize per IS window via optimizer.optimize, trade frozen params on next OOS window, stitch OOS equity, report Walk-Forward Efficiency=OOS/IS per window). viz/charts.py +parameter_stability_heatmap (1D line/2D heatmap)/monte_carlo_fan/walk_forward_equity. backtester page: _render_validation (PSR always, DSR for Optuna, stability surface), _render_monte_carlo expander, _render_walk_forward section; 'Probabilistic Sharpe (PSR)' added to _MAXIMIZE_MAP. tests/test_optimizer_validation.py (11). Verified: full pytest 67 green, AppTest renders backtester (26 metrics), real-RELIANCE drive (PSR/grid-heatmap/Optuna-DSR=27%/MC-bands-bracket-realized/WFE=-1.2 all correct; the overfit EMA-crossover is correctly flagged). Effort M-L."
+  "project": "QuantDesk — Modular Market Data, No-Code Research & OpenAlgo Execution Suite",
+  "as_of": "2026-11-27",
+  "current_version": "v9.0",
+  "one_line_status": "v9.0 SHIPPED — No-Code Builder v2, offline OpenAlgo Charts v2.7.5 + Bar-by-Bar Replay Terminal, unified Upstox/OpenAlgo broker gateway + Data Coverage Catalog incremental top-up, and isolated risk-guarded Live Operations Monitor & Bot Exporter (218 pytest checks + 16-page AppTest).",
+  "milestones": {
+    "v7_1_trustworthy_core": "DONE — AST sandbox + preset validation, real India statutory charges, risk-% sizing, ATR/breakeven/scale-out/time stops, adaptive Kelly sizing.",
+    "v8_0_to_v8_2": "DONE — Data integrity (ChunkDownloadError + NSE calendar quality gate), HTF causality + tax CSV export + root flat layout.",
+    "v9_0_prop_desk_openalgo": "DONE — Strategy Builder v2, offline OpenAlgo Charts v2.7.5 + Chart Backtester Terminal with Bar Replay, OpenAlgo REST v1 broker adapter + Data Catalog incremental top-up + sidecar manager, isolated Live Signal Runner + Pre-Trade Risk Guard + standalone OpenAlgo bot exporter + headless blueprint."
   },
-  "release_framing": "v7.0 = Phase A + B (the user's core complaint); v7.1 = Phase C.",
-  "implementation_pattern": "Reuse the proven ALMA/LR-Slope/R2 approach: vectorised helper in indicators.py + inject into compiler._namespace() + emit via self.I. New types are 'panel' placement so the v6.1 chart auto-shows them in own panels. Parity unaffected (new types). Add tests/test_features.py, test_ml_rigor.py, test_optimizer_validation.py.",
-  "salvaged_audit_transcripts": "C:\\Users\\Admin\\.claude\\projects\\D--mbs-historydownloader\\42e7bf71-5569-4575-a1f0-e8387ee0caa9\\subagents\\workflows\\wf_ebc554f3-006 (agent-*.jsonl)"
- },
- "environment": {
-  "os": "Windows 11, git-bash + PowerShell",
-  "python": "3.12 (uv-managed venv)",
-  "venv_python": "D:\\simpleton\\historydownloader\\.venv\\Scripts\\python.exe",
-  "note_on_venv": "The modular app's own .venv may also exist at 'D:\\mbs\\historydownloader\\modular history\\.venv' (what the user runs via run.bat). ALL testing/verification in this project used the simpleton venv above (has pytest, kaleido-fail, pandas>=3). Both are Python 3.12 with the same deps.",
-  "key_versions": {
-   "streamlit": "1.58.0",
-   "plotly": "6.8.0",
-   "bokeh": "3.9.1 (transitive via backtesting)",
-   "backtesting": "0.6.5",
-   "pandas": ">=3.0",
-   "quantstats": "0.0.81",
-   "pytest": "9.1.1"
+  "environment": {
+    "os": "Windows 11 / Cross-platform Python 3.11+",
+    "python": "3.12 (uv-managed .venv)",
+    "key_versions": {
+      "streamlit": ">=1.50",
+      "plotly": ">=6.0",
+      "backtesting": ">=0.6.5",
+      "pandas": ">=3.0",
+      "quantstats": ">=0.0.81",
+      "openalgo_charts_vendored": "2.7.5 (Apache-2.0, offline standalone JS)"
+    },
+    "db_file": "quantdesk_data.db (SQLite WAL, gitignored; override with MODULAR_DB_FILE)",
+    "env_secrets": ".env (gitignored; Save to .env available in sidebar)"
   },
-  "data_dir": "D:\\simpleton\\historydownloader\\data  (real RELIANCE/RECLTD/etc. CSV+Parquet; cols Timestamp,Open,High,Low,Close,Volume,OI[,Dividend,Rights_Premium])",
-  "sample_file": "D:\\simpleton\\historydownloader\\data\\RELIANCE\\RELIANCE_15Min_2022-06-01_to_2026-06-18.csv (22845 bars)",
-  "app_dir": "D:\\mbs\\historydownloader\\modular history",
-  "original_monolith": "D:\\mbs\\historydownloader\\upstox_app.py (3207-line Streamlit app; RETAINED, never edited)",
-  "db_file": "modular history/quantdesk_data.db (SQLite, WAL; gitignored). Seed download log via data.recovery.rebuild_db_from_folder(DATA_DIR).",
-  "env_secrets": "Upstox API key/secret in D:\\mbs\\historydownloader\\.env (UPSTOX_API_KEY/SECRET/REDIRECT_URI=http://localhost:8501). NEVER commit."
- },
- "repos": {
-  "historytester": {
-   "url": "https://github.com/gauravrakhecha/historytester",
-   "visibility": "PRIVATE",
-   "branches": [
-    "main"
-   ],
-   "latest_tag": "v8.2",
-   "latest_commit": "see tag v8.2",
-   "layout": "FLAT (as of v8.2): the maintained app lives at the REPO ROOT (quantdesk/, app_main.py, tests/, run.bat, install.bat, requirements.txt, README.md, ARCHITECTURE.md, STATUS.md, progress.json, modular.json, ROADMAP_*.md, RESUME_CONTEXT.md, .workflow/modlog.py) + CHANGELOG.md + LICENSE + .gitignore. The legacy single-file upstox_app.py was REMOVED in v8.2 (kept in git history at tag v8.1 and earlier). NOTE: local development still lives in D:\\mbs\\historydownloader\\modular history\\ — the publish step maps that local folder's contents onto the remote ROOT.",
-   "tags": [
-    "v3.0",
-    "v3.1",
-    "v3.2",
-    "v3.3",
-    "v4.0",
-    "v5.0",
-    "v6.0",
-    "v6.1",
-    "v7.0-alpha",
-    "v7.0",
-    "v7.0.1",
-    "v7.5",
-    "v7.6",
-    "v7.7",
-    "v7.8",
-    "v8.0",
-    "v8.1",
-    "v8.2"
-   ],
-   "notes": "Old sambhav/sabhav branches are now deleted; only main remains."
-  },
-  "sambhav": {
-   "url": "https://github.com/gauravrakhecha/sambhav",
-   "visibility": "PRIVATE",
-   "purpose": "Dedicated collaborator workspace (GitHub has no per-branch read access, so a separate repo gives true isolation). Invite collaborator here only.",
-   "synced_to": "v8.2",
-   "sync_procedure": "clone historytester main (depth 1) -> clone sambhav -> replace sambhav working tree (keep .git) with historytester content (tar excluding .git) -> commit 'Sync to vX' -> push. Always re-run secret scan."
-  }
- },
- "how_to_run": "cd 'D:\\mbs\\historydownloader\\modular history'; run.bat  (or: <venv>\\python -m streamlit run app_main.py). Opens 13-page dashboard at localhost:8501.",
- "how_to_verify": [
-  "cd 'modular history'",
-  "<simpleton venv>\\python -m pytest tests/ -q -p no:cacheprovider   (41 tests; parity test ~85s, full suite ~3min; set PYTHONIOENCODING=utf-8)",
-  "<venv>\\python tests/verify_app.py        # Streamlit AppTest: all 13 pages render + a backtest runs through the UI",
-  "<venv>\\python tests/verify_features.py   # drives plotter/builder/settings/optimizer flows",
-  "Live drive: Preview MCP launch.json config 'quantdesk-modular' (port 8521). NOTE: headless Chrome here cannot screenshot Plotly/canvas reliably (kaleido fails; canvas blank) — structural/AppTest checks are the reliable proof; use real browser for visual."
- ],
- "how_to_publish_new_version": [
-  "1. Run full test suite green + AppTest (simpleton venv).",
-  "2. rm -rf /d/_ht_pub; gh repo clone gauravrakhecha/historytester /d/_ht_pub  (FULL clone, not --depth 1, so git mv history stays intact).",
-  "3. FLAT LAYOUT (v8.2+): the remote app is at the ROOT. Delete the tracked app files at the clone root, then copy the current LOCAL 'modular history/' contents onto the clone ROOT, EXCLUDING runtime: copy quantdesk tests app_main.py run.bat install.bat requirements.txt README.md ARCHITECTURE.md RESUME_CONTEXT.md STATUS.md modular.json progress.json ROADMAP_*.md + .workflow/modlog.py. KEEP the clone's CHANGELOG.md + LICENSE + .gitignore. Strip __pycache__/*.pyc. (The local dev tree is still under 'modular history/'; only the REMOTE is flat.)",
-  "4. Update root CHANGELOG.md (new entry) + README.md (version callout).",
-  "5. SECRET SCAN: git grep gho_/ghp_/eyJ/-----BEGIN; confirm no .env/.db/quantdesk_data.db/.master_cache/strategies/plots staged; confirm quantdesk/data/ package present (9 files); compileall.",
-  "6. git add -A; commit (end with Co-Authored-By: Claude Opus 4.8); git tag -a vX; push main + tag; gh release create vX.",
-  "7. Verify remote root has the app + no secrets; rm -rf /d/_ht_pub.",
-  "8. If asked, sync sambhav (see repos.sambhav.sync_procedure) — it mirrors the whole tree so the flat layout carries over automatically."
- ],
- "stats": {
-  "quantdesk_py_modules": 57,
-  "tests": 130,
-  "modular_json_index": "62/62 files verified"
- },
- "architecture": {
-  "entry": "app_main.py (thin: page config, auth sidebar, nav radio, dispatch to one render(ctx) page module; per-page auth gate; session-cached master_df + precomputed selector meta)",
-  "quantdesk/config.py": "env/paths/constants; DEFAULTS (incl save_format='Both', csv_data_dir, quality thresholds); INDICATOR_OUTPUT_SUFFIXES; INDICATOR_PLACEMENT (overlay/panel) + INDICATOR_PANEL_GUIDES",
-  "quantdesk/core": "db (single SQLite layer + migration + insert_backtest), settings_repo (cached), logging, cache (Streamlit-or-not shim: cache_data/cache_resource), reproducibility (hashes)",
-  "quantdesk/data": "loader (csv/parquet, mtime cache), resample (vectorised per-session), corporate_actions (dtype-safe splits), master_list (cache_resource + vectorised classifier + 24h disk cache), quality (gate), recovery, saver (Parquet/CSV/Both + separate csv dir)",
-  "quantdesk/brokers": "base, upstox/zerodha/dhan (fetch_single + upstox options), downloader (async orchestrator, progress_cb)",
-  "quantdesk/strategy": "models (StrategyConfig, safe_name, selectable_columns, classify_columns), indicators (registry+codegen+param specs+vectorised ALMA/LRSlope/R2; USE_VECTORIZED flag), codegen (build_strategy_code), compiler (bytecode-cached fresh class), presets",
-  "quantdesk/backtest": "worker (ProcessPool, quality gate, buried metrics), engine (run_single + IS/OOS split + info['opt_meta'] + native_bokeh_html), optimizer (Optuna+grid, int-safe; returns (stats,best,meta) with grid return_heatmap + Optuna trials/per-trial-Sharpes + PSR_OBJECTIVE), wfo (NEW v7C: anchored/rolling walk-forward, stitched OOS equity + Walk-Forward Efficiency), batch (folder multi-core + extract_trades w/ Source tag), metrics (stats + buried + equity_returns + yearly + enrich_trades + v7C PSR/DSR/sharpe_moments/validation_stats/monte_carlo_bootstrap)",
-  "quantdesk/costs/india.py": "Decimal STT/stamp/exchange/SEBI/brokerage/GST per segment (Equity Intraday/Delivery/Futures)",
-  "quantdesk/ml/patterns.py": "XGBoost importance + decision-tree rules (reads per-trade 'ReturnPct')",
-  "quantdesk/viz/charts.py": "render_plotly_backtest (multi-panel: overlays on price, oscillators in own panels w/ guides, Scattergl, candle downsample, intraday rangebreaks), equity_overlay, feature_importance_bar, quantstats tearsheet+metrics",
-  "quantdesk/ui": "components (auth sidebar, instrument selector w/ precomputed meta, render_save_folders, PageContext) + pages/* (13 render(ctx) modules)"
- },
- "key_decisions": [
-  "Keep backtesting.py as the engine (do NOT swap to NautilusTrader/VectorBT).",
-  "Keep Plotly for charts; do NOT pivot to Bokeh or TradingView Lightweight Charts (multi-agent debate verdict: messiness was a DESIGN bug, fixed in v6.1; st.bokeh_chart is a no-op in Streamlit 1.58; LWC is a third-party iframe with quirks). Optional native-Bokeh 'Pro chart' embed kept behind a toggle only.",
-  "Indicator placement (overlay vs own panel) is single-sourced in config.INDICATOR_PLACEMENT.",
-  "Default download save format = Both (Parquet + CSV); CSV can go to a separate folder.",
-  "Vectorised indicators are proven byte-equal to originals (test_parity.py); toggle via indicators.USE_VECTORIZED.",
-  "Local tools work without broker login; only live downloaders/options need auth.",
-  "modular.json is the granular file-by-file index, updated via .workflow/modlog.py (env MODLOG_AGENT=name; commands: file/log/feature/speed/phase/agent)."
- ],
- "gotchas": [
-  "pandas >= 3: in-place float assignment into an int64 column raises (fixed corporate_actions by casting OHLCV to float first).",
-  "ML per-trade return column is 'ReturnPct' (fraction), NOT 'Return [%]' (that's overall stats).",
-  "backtesting.py Position has NO .entry_price; use self.trades[-1].entry_price (trailing-stop codegen).",
-  "_prev_position_size is SIGNED (negative for shorts) — short trailing fresh-entry guard is '>= 0'.",
-  "st.cache_data deep-copies its return each rerun; master list uses cache_resource + session_state to avoid 53MB copies.",
-  "Headless Chrome in this sandbox cannot screenshot Plotly/canvas (kaleido fails to launch Chrome); rely on AppTest + structural tests; use a real browser for visual confirmation.",
-  "Streamlit st.bokeh_chart is a no-op in 1.58; embed Bokeh via components.html(file_html(...)).",
-  "Tests hardcode the D:\\simpleton data path (not portable to CI/other machines) — a known deferred item.",
-  "Windows multiprocessing: spawn children import the worker module; run ProcessPool tests via a real .py with __main__ guard (tests/manual_batch_check.py), not heredoc."
- ],
- "completed_in_v6_and_v6_1": [
-  "PERF: master-list cache_resource + session_state + vectorised classifier (3.0s->0.3s) + 24h disk cache (startup ~10s->0.8s); selector per-class slices (keystroke ~90ms->33ms); WAL once; resample vectorised.",
-  "AUDIT FIXES: ML Finder crash (ReturnPct); short trailing ratchet + latent crash; 'Tighten Trailing Stop' dead code; charges double-count/mislabel; Optuna int params + no-config error; presets dropping position sizing; yearly drawdown min->max; volume-less chart guard; content-based dataset_hash; quality gate enforced in engine; ML labeled exploratory.",
-  "CORP-ACTIONS: split/bonus download crash on pandas>=3 (int64 Volume) fixed + new test_corporate_actions.py.",
-  "SAVING: Parquet/CSV/Both setting + separate CSV folder; per-page Parquet & CSV folder inputs (components.render_save_folders); data/saver.py.",
-  "CHART REDESIGN (v6.1): overlay vs panel routing; oscillator panels w/ guide lines; range-scaled markers; Scattergl; candle downsample; intraday rangebreaks; optional engine-native Bokeh 'Pro chart' (engine.native_bokeh_html + backtester checkbox)."
- ],
- "deferred_roadmap": {
-  "cleared_in_v8_1": [
-   "Loader tz normalization to one convention (tz-naive IST) — data/loader.normalize_timestamps, applied in loader + worker.",
-   "Run-id-tagged logging + per-run error reports — core/logging.write_error_report, wired into the batch worker.",
-   "Portable tests — QUANTDESK_TEST_CSV/DIR env vars + skip-if-missing; removed all hardcoded D:\\simpleton paths.",
-   "Trade-level analytics MAE/MFE/R-multiple + Kelly/expectancy — metrics.enrich_trade_analytics + trade_kelly, surfaced on the Backtester page.",
-   "Batch rows persist dataset_hash/segment/net_return_pct/equity_curve_json — worker + batch.save_batch_to_db (now in leaderboard/repro).",
-   "Strategy Builder delete-row drift — stable uuid widget keys per rule/zone (_row_id), stripped at preset serialization.",
-   "options_chain stale-save guard — clears cached contracts when the underlying/expiry selection changes.",
-   "Results delete — defaults to the inspected run + plain-language confirm checkbox + rowcount feedback.",
-   "India tax-format export — metrics.tax_breakdown per-trade statutory charge CSV on the Backtester page.",
-   "Strategy capabilities: higher-timeframe EMA trend bias + intraday square-off (MIS) — codegen + RiskManagement + builder UI."
+  "archived_docs": [
+    "docs/archive/ROADMAP_v5.md",
+    "docs/archive/ROADMAP_v7.md",
+    "docs/archive/ROADMAP_v7.1_trustworthy_core.md",
+    "docs/archive/ROADMAP_v8_data_agent.md",
+    "docs/archive/modular.json"
   ],
-  "already_done_earlier": [
-   "WFO, PSR/DSR, Monte-Carlo bands, parameter-stability heatmap — v7 Phase C.",
-   "ML train/test holdout + significance + sample floor — v7 Phase B.",
-   "Quality gate missing-bar/gap detection — v8.0 (calendar-aware).",
-   "Partial exits/scale-out, ATR/time/breakeven stops, risk-% & Kelly sizing — v7.6-7.8.",
-   "Charges-in-equity, AST-whitelist security, repro hashes — v7.5."
-  ],
-  "closed_as_MBS_domain_federate": {
-   "note": "MBS (D:\\mbs, VectorBT+NautilusTrader) is the system of record per the MBS-vs-QuantDesk audit. These need a custom event loop / multi-asset engine that backtesting.py (single-asset) can't provide, and already exist in MBS. QuantDesk stays the data-acquisition + no-code prototyping + ML front end; a strategy 'graduates' to MBS for portfolio/options/benchmark validation. Not built here by design.",
-   "items": [
-    "True multi-asset portfolio engine (shared capital, allocation, correlation guard) — MBS mbs/portfolio.",
-    "Options backtesting (legs/Greeks/ITM-STT) — MBS mbs/engine/options_engine.py (monthly+weekly).",
-    "Benchmark engine alpha/beta/IR vs Nifty — MBS mbs/risk/benchmark.py.",
-    "Trade Replay bar-by-bar — MBS server /replay (QuantDesk keeps the static plotter).",
-    "Futures continuous-contract construction + roll costs — MBS instrument layer.",
-    "Point-in-time index constituents (survivorship) — large data project; MBS flags the caveat."
-   ]
+  "repos": {
+    "historytester": {
+      "url": "https://github.com/gauravrakhecha/historytester",
+      "visibility": "PRIVATE",
+      "branches": ["main"],
+      "latest_tag": "v9.0",
+      "layout": "FLAT at repository root (quantdesk/, app_main.py, tests/, pyproject.toml, README.md, ARCHITECTURE.md, STATUS.md, RESUME_CONTEXT.md, CHANGELOG.md, docs/archive/)"
+    },
+    "sambhav": {
+      "url": "https://github.com/gauravrakhecha/sambhav",
+      "visibility": "PRIVATE",
+      "purpose": "Dedicated collaborator mirror repo.",
+      "synced_to": "v9.0",
+      "sync_procedure": "Clone historytester + sambhav, replace sambhav working tree preserving .git with clean v9.0 archive contents, run secret scan + compileall, commit 'Sync to v9.0', tag v9.0, push main + tag."
+    }
   },
-  "still_open_optional": [
-   "Indicator plugin registry (user-extensible via AST whitelist — the whitelist now EXISTS post-v7.5, so this is unblocked but unbuilt).",
-   "True .xlsx export (needs an openpyxl dependency; the India-tax + trade CSVs cover the need pip-free).",
-   "v8 Autonomous Data Agent (scheduled auto-download/resample) — separate ROADMAP_v8_data_agent.md milestone."
+  "how_to_run": "run.bat  (or .venv\\Scripts\\python.exe -m streamlit run app_main.py)",
+  "how_to_verify": [
+    ".venv\\Scripts\\python.exe -m pytest tests/ --ignore=tests/test_downloader.py -p no:cacheprovider -q",
+    ".venv\\Scripts\\python.exe tests/verify_app.py",
+    ".venv\\Scripts\\python.exe tests/verify_features.py"
+  ],
+  "how_to_publish_new_version": [
+    "1. Run pytest (--ignore=tests/test_downloader.py), verify_app.py (16 pages), and verify_features.py.",
+    "2. Build clean archive excluding .env, *.db, .venv, __pycache__, .master_cache, .workflow logs, plots, strategies, and run secret scan.",
+    "3. Clone primary repo, update root files preserving .git and .workflow/modlog.py, verify git grep secret scan + compileall.",
+    "4. Commit, tag vX.Y, push main + tag, create GitHub release, and sync sambhav mirror."
   ]
- },
- "security_note": "compiler.py exec()s generated strategy source. Safe ONLY because every input is widget-constrained today. Any future free-text/custom-formula field or hand-edited preset = RCE risk -> add an AST whitelist + preset schema validation BEFORE shipping user-extensibility. (NOTE: the AST whitelist + preset validation SHIPPED in v7.5 — quantdesk/strategy/validation.py; this note predates it.)",
- "notes": [
-  "v7 Phases A + B + C are ALL DONE, verified (67 tests + AppTest + real-data drives) and RELEASED as v7.0 (pushed to historytester main + tag v7.0 + GitHub release; sambhav synced to v7.0) on 2026-06-28.",
-  "NEXT candidates (deferred_roadmap.high_value_next): trade-level analytics (MAE/MFE, R-multiple, Kelly), Trade Replay, benchmark engine (alpha/beta/IR vs Nifty buy&hold), persist enriched trade log to DB.",
-  "Invite a collaborator to the sambhav repo (need their GitHub username; gh api PUT repos/gauravrakhecha/sambhav/collaborators/<user> -f permission=push|pull)."
- ]
 }
