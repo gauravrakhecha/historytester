@@ -1,5 +1,15 @@
 # Changelog
 
+## v9.0 — No-Code Builder v2, OpenAlgo Charts Terminal, Unified Data Hub & Live Bridge (2026-11-26)
+
+Major architectural release transforming QuantDesk into a complete offline-capable prop-desk research & OpenAlgo execution workstation:
+
+- **Offline OpenAlgo Charts v2.7.5 & Chart Backtester Terminal:** Vendored `openalgo-charts` standalone JS bundle locally (zero CDN calls, `Asia/Kolkata` timezone) with a new `📊 Chart Backtester (Terminal)` workspace featuring client-side Bar-by-Bar Replay + P&L HUD, linked Equity/Drawdown panes, Entry/Exit/SL/TP `PriceLine`s, and a clickable Trade Blotter.
+- **No-Code Strategy Builder v2:** Added Simple (Guided) vs Pro (All Controls) modes, 5 1-click Starter Templates, live Plain-English strategy translation, sanity warnings, Quick Test Preview, 4 custom blocks (`Series Math`, `Rolling Stat`, `Bar Shift`, and AST-safe `Custom Formula`), parenthesized condition groups, `NOT`, lookback timing, and intraday entry time windows.
+- **OpenAlgo Ecosystem Integration & `📡 Data Hub & OpenAlgo`:** Unified sidebar broker selection (`Upstox` | `OpenAlgo` for 38+ brokers), strict Marshmallow REST v1 data adapter (`/api/v1/history`, `/search`, `/ping`, `/analyzer`), Data Coverage Catalog with provisional-bar-safe incremental top-up, bulk ZIP export, and loose-coupled OpenAlgo Web/Desktop/sidecar status monitoring.
+- **Live Operations Monitor, Risk Guard & Bot Exporter (`🚦 Live Monitor & Deploy`):** Account telemetry (`/funds`, `/positionbook`, `/orderbook`, `/tradebook`), pre-trade kill switches (`daily_loss_limit`, `max_trades_per_day`, `max_open_positions`, duplicate-bar cooldown, explicit `live_confirmed`), isolated `signal_runner` (`alert_only` -> `sandbox` -> `live`), standalone OpenAlgo Python script generator, headless Flask blueprint, and `pyproject.toml` (`9.0.0`) packaging.
+- **Hardening & Upstox Auth Fix:** HTF EMA causality (`shift(1)`), strict preset & AST validation, `Save to .env` & new-tab Upstox OAuth handling preventing `UDAPI1013`, portable data paths, and expanded automated test coverage (218 tests + 16-page `AppTest`).
+
 ## v8.2 — Repo restructure: one app at the root (2026-07-12)
 
 Housekeeping, no behaviour change. The repository previously held **two** apps — the original

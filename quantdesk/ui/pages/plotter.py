@@ -4,13 +4,25 @@ from __future__ import annotations
 import os
 import traceback
 
-import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
-from quantdesk.strategy.compiler import compile_strategy
-from quantdesk.strategy.models import OHLCV, safe_name, selectable_columns
 from quantdesk.core.db import get_download_history
-from quantdesk.viz.charts import render_plotly_backtest
+from quantdesk.data.loader import load_indexed
+from quantdesk.strategy.compiler import compile_strategy
+from quantdesk.strategy.models import OHLCV, classify_columns, safe_name, selectable_columns
+from quantdesk.viz.charts import render_openalgo_backtest, render_plotly_backtest
+
+
+def _openalgo_chart_height(indicators) -> int:
+    if not indicators:
+        return 700
+    panels = {
+        info["group"]
+        for info in classify_columns(indicators).values()
+        if info.get("placement") == "panel"
+    }
+    return min(1060, 700 + 120 * len(panels))
 
 
 def render(ctx):
@@ -35,7 +47,16 @@ def render(ctx):
     selected_idx = st.selectbox("Select Dataset", range(len(options)), format_func=lambda x: labels[x], key="signal_inspector_ds")
     selected_file = options[selected_idx]
 
-    if st.button("🔍 Generate Signal Sheet", use_container_width=True):
+    chart_engine = st.radio(
+        "Chart Engine",
+        ["OpenAlgo Interactive (Default)", "Plotly"],
+        index=0,
+        horizontal=True,
+        key="plotter_chart_engine",
+        help="OpenAlgo Interactive renders fast offline canvas candlesticks, overlays, sub-panels, and trade markers.",
+    )
+
+    if st.button("🔍 Generate Signal Sheet", width="stretch"):
         if not os.path.exists(selected_file):
             st.error("Data file not found on disk.")
             return
@@ -46,10 +67,7 @@ def render(ctx):
                 # the user already expects work, instead of freezing the page transition.
                 from backtesting import Backtest
 
-                df = pd.read_parquet(selected_file) if selected_file.endswith(".parquet") else pd.read_csv(selected_file)
-                if "Timestamp" in df.columns:
-                    df["Timestamp"] = pd.to_datetime(df["Timestamp"])
-                    df.set_index("Timestamp", inplace=True)
+                df = load_indexed(selected_file)
 
                 strategy_class = compile_strategy(code)
                 bt = Backtest(df, strategy_class, cash=100000, finalize_trades=True)
@@ -85,21 +103,30 @@ def render(ctx):
                 mc1.metric("Total Bars", len(out_df))
                 mc2.metric("Buy Signals", int(out_df["Buy_Signal"].sum()))
                 mc3.metric("Sell Signals", int(out_df["Sell_Signal"].sum()))
-                st.dataframe(out_df, use_container_width=True, height=500)
+                st.dataframe(out_df, width="stretch", height=500)
 
                 st.download_button(
                     label="📥 Export Signal Sheet to CSV",
                     data=out_df.to_csv().encode("utf-8"),
                     file_name="signal_inspector_output.csv",
                     mime="text/csv",
-                    use_container_width=True,
+                    width="stretch",
                 )
 
-                st.subheader("Interactive Signal Visualization (Plotly)")
-                try:
-                    st.plotly_chart(render_plotly_backtest(out_df, trades, indicators), use_container_width=True)
-                except Exception as plot_e:
-                    st.warning(f"Could not generate interactive chart: {plot_e}")
+                if chart_engine == "Plotly":
+                    st.subheader("Interactive Signal Visualization (Plotly)")
+                    try:
+                        st.plotly_chart(render_plotly_backtest(out_df, trades, indicators), width="stretch")
+                    except Exception as plot_e:
+                        st.warning(f"Could not generate interactive chart: {plot_e}")
+                else:
+                    st.subheader("Interactive Signal Visualization (OpenAlgo)")
+                    try:
+                        chart_height = _openalgo_chart_height(indicators)
+                        html = render_openalgo_backtest(out_df, trades, indicators, height=chart_height)
+                        components.html(html, height=chart_height, scrolling=False)
+                    except Exception as plot_e:
+                        st.warning(f"Could not generate interactive chart: {plot_e}")
             except Exception as e:
                 st.error(f"Error generating signal sheet: {e}")
                 st.code(traceback.format_exc(), language="text")

@@ -44,8 +44,9 @@ def _equity_series_from_json(blob) -> pd.Series | None:
         data = json.loads(blob)
         if not data:
             return None
-        idx = pd.to_datetime([d for d, _ in data])
-        return pd.Series([v for _, v in data], index=idx)
+        pairs = list(data.items()) if isinstance(data, dict) else data
+        idx = pd.to_datetime([d for d, _ in pairs])
+        return pd.Series([float(v) for _, v in pairs], index=idx).sort_index()
     except Exception:
         return None
 
@@ -71,7 +72,7 @@ def render(ctx):
 
         for col in df.select_dtypes(include=["float"]).columns:
             df[col] = df[col].round(3)
-        st.dataframe(df, use_container_width=True, height=360)
+        st.dataframe(df, width="stretch", height=360)
 
         # --- #6 Leaderboard / cross-run comparison ---
         st.subheader("🏆 Compare Runs")
@@ -85,7 +86,7 @@ def render(ctx):
             metric_cols = ["strategy_name", "symbol", "timeframe", "return_pct", "net_return_pct",
                            "buy_hold_return_pct", "max_drawdown_pct", "win_rate_pct", "sharpe_ratio",
                            "sqn", "profit_factor", "num_trades", "quality_score", "total_charges"]
-            st.dataframe(comp[[c for c in metric_cols if c in comp.columns]].T, use_container_width=True)
+            st.dataframe(comp[[c for c in metric_cols if c in comp.columns]].T, width="stretch")
 
             curves = {}
             with connect() as c2:
@@ -95,7 +96,7 @@ def render(ctx):
                     if s is not None:
                         curves[f"#{rid}"] = s
             if curves:
-                st.plotly_chart(equity_overlay(curves), use_container_width=True)
+                st.plotly_chart(equity_overlay(curves), width="stretch")
             else:
                 st.caption("No stored equity curves for the selected runs (run new backtests to populate).")
 

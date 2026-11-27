@@ -24,9 +24,10 @@ import pandas as pd
 import psutil
 
 from quantdesk.brokers import dhan as dhan_broker
+from quantdesk.brokers import openalgo as openalgo_broker
 from quantdesk.brokers import upstox as upstox_broker
 from quantdesk.brokers import zerodha as zerodha_broker
-from quantdesk.brokers.base import ChunkDownloadError, RetryableError
+from quantdesk.brokers.base import ChunkDownloadError, NonRetryableError, RetryableError
 from quantdesk.data.corporate_actions import (
     apply_corporate_actions,
     fetch_corporate_actions_upstox,
@@ -39,6 +40,7 @@ _FETCHERS = {
     "Upstox": upstox_broker.fetch_single,
     "Zerodha": zerodha_broker.fetch_single,
     "Dhan": dhan_broker.fetch_single,
+    "OpenAlgo": openalgo_broker.fetch_single,
 }
 
 ProgressCB = Optional[Callable[[float, str], None]]
@@ -99,20 +101,24 @@ async def fetch_chunk_async(session, sem, broker, row, interval, start_dt, end_d
             start_dt, end_dt, attempts=0, last_error=ValueError(f"no fetcher for broker {broker!r}")
         )
     last_err: BaseException | None = None
+    attempts = 0
     async with sem:
         for attempt in range(_MAX_ATTEMPTS):
+            attempts = attempt + 1
             try:
                 return await fetcher(session, row, interval, start_dt, end_dt, auth_dict)
             except Exception as exc:  # noqa: BLE001 — broad retry, mirror original behaviour
                 last_err = exc
+                if isinstance(exc, NonRetryableError) or not getattr(exc, "retryable", True):
+                    break
                 if attempt < _MAX_ATTEMPTS - 1:
                     retry_after = getattr(exc, "retry_after", None)
                     await asyncio.sleep(_backoff_seconds(attempt, retry_after))
     log.warning(
-        "Chunk %s..%s (%s %s) failed after %d attempts: %r",
-        start_dt, end_dt, broker, interval, _MAX_ATTEMPTS, last_err,
+        "Chunk %s..%s (%s %s) failed after %d attempt(s): %r",
+        start_dt, end_dt, broker, interval, attempts, last_err,
     )
-    raise ChunkDownloadError(start_dt, end_dt, attempts=_MAX_ATTEMPTS, last_error=last_err)
+    raise ChunkDownloadError(start_dt, end_dt, attempts=attempts, last_error=last_err)
 
 
 async def download_long_range_async(
@@ -146,7 +152,8 @@ async def download_long_range_async(
     total = len(chunks)
     done = 0
 
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=60, connect=15)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         for c_start, c_end in chunks:
             tasks.append(
                 fetch_chunk_async(session, sem, broker, row, interval, c_start, c_end, auth_dict)
@@ -199,7 +206,7 @@ async def download_long_range_async(
     final_df.sort_values("Timestamp", inplace=True)
 
     if apply_corp_actions and broker == "Upstox":
-        async with aiohttp.ClientSession() as ca_session:
+        async with aiohttp.ClientSession(timeout=timeout) as ca_session:
             corp_actions = await fetch_corporate_actions_upstox(
                 ca_session, row["instrument_key"], auth_dict["access_token"]
             )

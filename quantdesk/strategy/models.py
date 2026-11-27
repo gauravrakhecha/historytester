@@ -36,6 +36,7 @@ RM_MODES = [
     "Indicator-Based Exit (Advanced)",
 ]
 STRAT_DIRECTIONS = ["Long Only", "Short Only", "Long & Short"]
+RULE_TIMINGS = ["now", "bars_ago", "within_last", "consecutive"]
 
 
 def safe_name(raw: str) -> str:
@@ -79,7 +80,9 @@ def classify_columns(indicators: List[Dict[str, Any]]) -> Dict[str, dict]:
     out: Dict[str, dict] = {}
     for ind in indicators or []:
         itype = ind.get("type", "")
-        placement = INDICATOR_PLACEMENT.get(itype, "overlay")
+        placement = ind.get("placement")
+        if placement not in ("overlay", "panel"):
+            placement = INDICATOR_PLACEMENT.get(itype, "overlay")
         for col in output_columns_for(ind):
             out[col] = {"placement": placement, "group": ind["name"], "type": itype}
     return out
@@ -108,6 +111,10 @@ class RiskManagement:
     htf_minutes: int = 60               # higher-timeframe resample interval (minutes)
     htf_ema_period: int = 50            # EMA length on the higher-timeframe series
     intraday_square_off: bool = False   # flatten any open position at each session's last bar
+    # v8.2 — intraday entry time window filter
+    entry_time_filter: bool = False     # block new entries outside [entry_start_time, entry_end_time]
+    entry_start_time: str = "09:30"     # HH:MM (24h)
+    entry_end_time: str = "14:45"       # HH:MM (24h)
 
     def to_dict(self) -> dict:
         return {
@@ -128,6 +135,9 @@ class RiskManagement:
             "htf_minutes": self.htf_minutes,
             "htf_ema_period": self.htf_ema_period,
             "intraday_square_off": self.intraday_square_off,
+            "entry_time_filter": self.entry_time_filter,
+            "entry_start_time": self.entry_start_time,
+            "entry_end_time": self.entry_end_time,
         }
 
     @classmethod
@@ -151,6 +161,9 @@ class RiskManagement:
             htf_minutes=d.get("htf_minutes", 60),
             htf_ema_period=d.get("htf_ema_period", 50),
             intraday_square_off=d.get("intraday_square_off", False),
+            entry_time_filter=d.get("entry_time_filter", False),
+            entry_start_time=d.get("entry_start_time", "09:30"),
+            entry_end_time=d.get("entry_end_time", "14:45"),
         )
 
 

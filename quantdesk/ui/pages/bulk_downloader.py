@@ -78,7 +78,7 @@ def render(ctx):
         to_date = st.date_input("To Date", today)
         local_path, csv_dir = C.render_save_folders("bulk", ctx.default_parquet_dir, "📁 Parquet Folder Path")
 
-        if st.button("🚀 Start Bulk Async Download", use_container_width=True):
+        if st.button("🚀 Start Bulk Async Download", width="stretch"):
             if not selected_intervals:
                 st.error("Please select at least one interval.")
             else:

@@ -45,7 +45,7 @@ def render(ctx):
 
         local_path, csv_dir = C.render_save_folders("master", ctx.default_parquet_dir, "📁 Parquet Base Save Folder")
 
-    if st.button("🚀 Download Master & Extract Timeframes", type="primary", use_container_width=True):
+    if st.button("🚀 Download Master & Extract Timeframes", type="primary", width="stretch"):
         if selected_row is None:
             st.error("❌ Please select an instrument first.")
         elif from_date > to_date:
@@ -99,4 +99,4 @@ def render(ctx):
 
                 status.success(f"🎉 Fully Complete! Generated {len(tfs)} timeframe files for each enabled format.")
                 st.caption(format_summary(csv_dir) + f"  Parquet symbol folder: `{symbol_dir}`")
-                st.dataframe(df_master.head(), use_container_width=True)
+                st.dataframe(df_master.head(), width="stretch")

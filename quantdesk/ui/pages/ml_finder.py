@@ -30,7 +30,10 @@ def render(ctx):
         st.warning("No strategy compiled yet. Go to Strategy Builder first.")
         return
     if history.empty:
-        st.warning("No downloaded data found. Please download data first.")
+        st.warning(
+            "No downloaded data found. Run **Data Management -> Start Recovery Scan** "
+            "if you already have data on disk, or download data using the Downloaders first."
+        )
         return
 
     ml_mode = st.radio("Analysis Mode", ["Single Dataset", "Bulk Folder Aggregation"], horizontal=True)
@@ -96,12 +99,22 @@ def render(ctx):
             )
     k_folds = 5 if validation.startswith("Walk-forward") else 0
 
-    if files_to_process and st.button("🔍 Mine Strategy for AI Patterns", use_container_width=True, type="primary"):
+    if files_to_process and st.button("🔍 Mine Strategy for AI Patterns", width="stretch", type="primary"):
+        existing_files = [f for f in files_to_process if f and os.path.isfile(f)]
+        if not existing_files:
+            st.error(
+                "None of the selected dataset file(s) exist on disk. "
+                "Run **Data Management -> Start Recovery Scan** or re-download the data."
+            )
+            return
+        missing_count = len(files_to_process) - len(existing_files)
+        if missing_count > 0:
+            st.warning(f"Skipping {missing_count} missing dataset file(s) not found on disk.")
         with st.spinner("Running deep backtest and extracting indicator features (multi-core)..."):
             try:
                 params = settings_repo.backtest_params()
                 all_trades = batch_mod.extract_trades(
-                    files_to_process, code, params["initial_capital"], params["total_commission"],
+                    existing_files, code, params["initial_capital"], params["total_commission"],
                     params["margin"], selected_features,
                 )
                 if not all_trades:
@@ -132,7 +145,7 @@ def render(ctx):
 
                 st.subheader("📊 Which Indicators Matter Most?")
                 if not result["importance"].empty:
-                    st.plotly_chart(feature_importance_bar(result["importance"]), use_container_width=True)
+                    st.plotly_chart(feature_importance_bar(result["importance"]), width="stretch")
                 else:
                     st.caption("No single indicator stood out (importance is exploratory only).")
 

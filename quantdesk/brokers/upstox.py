@@ -14,26 +14,10 @@ import aiohttp
 import pandas as pd
 import requests
 
-from quantdesk.brokers.base import CANDLE_COLUMNS, RetryableError
+from quantdesk.brokers.base import CANDLE_COLUMNS, raise_for_broker_status
 from quantdesk.core.logging import get_logger
 
 log = get_logger("brokers.upstox")
-
-
-def _parse_retry_after(value: str | None) -> float | None:
-    """Parse a ``Retry-After`` header (delta-seconds form) into seconds.
-
-    Only the numeric delta-seconds form is honoured; the rarely-used HTTP-date
-    form degrades to ``None`` (the orchestrator then falls back to its own
-    exponential back-off), which is safe.
-    """
-    if not value:
-        return None
-    try:
-        secs = float(value.strip())
-        return secs if secs >= 0 else None
-    except (ValueError, AttributeError):
-        return None
 
 
 async def fetch_single(session, row, interval, start_dt, end_dt, auth_dict) -> pd.DataFrame:
@@ -54,11 +38,7 @@ async def fetch_single(session, row, interval, start_dt, end_dt, auth_dict) -> p
                 df["Timestamp"] = pd.to_datetime(df["Timestamp"]).dt.tz_localize(None)
                 return df
             return pd.DataFrame()
-        raise RetryableError(
-            f"Upstox HTTP {resp.status}",
-            status=resp.status,
-            retry_after=_parse_retry_after(resp.headers.get("Retry-After")),
-        )
+        raise_for_broker_status("Upstox", resp.status, resp.headers)
 
 
 # --- options endpoints (sync; used by the Options Chain page) ----------------
@@ -67,7 +47,9 @@ def get_available_expiries(instrument_key, token):
     url = "https://api.upstox.com/v2/expired-instruments/expiries"
     headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
     try:
-        resp = requests.get(url, headers=headers, params={"instrument_key": instrument_key})
+        resp = requests.get(
+            url, headers=headers, params={"instrument_key": instrument_key}, timeout=15
+        )
         if resp.status_code == 200:
             data = resp.json().get("data", [])
             if data:
@@ -90,6 +72,7 @@ def get_expired_contracts(instrument_key, expiry_date, token):
         resp = requests.get(
             url, headers=headers,
             params={"instrument_key": instrument_key, "expiry_date": expiry_date},
+            timeout=15,
         )
         if resp.status_code == 200:
             return resp.json().get("data", []), None
@@ -109,14 +92,29 @@ async def _fetch_opt_history(session, c, auth_token, from_d, to_d):
         f"{c['instrument_key']}/1minute/{to_d}/{from_d}"
     )
     headers = {"Accept": "application/json", "Authorization": f"Bearer {auth_token}"}
-    for _attempt in range(3):
+    last_err: str | Exception | None = None
+    for attempt in range(3):
         try:
             async with session.get(url, headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     return c, data.get("data", {}).get("candles", [])
-        except Exception:
+                last_err = f"HTTP {resp.status}"
+                if resp.status in (401, 403):
+                    log.warning(
+                        "Options history auth error (%s) for %s; stopping retries.",
+                        last_err, c.get("instrument_key", "?"),
+                    )
+                    break
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+        if attempt < 2:
             await asyncio.sleep(0.5)
+    else:
+        log.warning(
+            "Options history fetch failed for %s after 3 attempts: %r",
+            c.get("instrument_key", "?"), last_err,
+        )
     return c, []
 
 

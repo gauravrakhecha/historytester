@@ -301,3 +301,7 @@ def feature_importance_bar(feat_imp_df: pd.DataFrame) -> go.Figure:
         margin=dict(l=20, r=20, t=40, b=20),
     )
     return fig
+
+
+from quantdesk.viz.openalgo_chart import build_openalgo_payload, render_openalgo_backtest  # noqa: E402, F401
+from quantdesk.viz.openalgo_terminal import build_terminal_payload, render_openalgo_terminal  # noqa: E402, F401

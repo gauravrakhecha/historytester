@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from quantdesk.brokers.base import CANDLE_COLUMNS, RetryableError
+from quantdesk.brokers.base import CANDLE_COLUMNS, raise_for_broker_status
 
 
 async def fetch_single(session, row, interval, start_dt, end_dt, auth_dict) -> pd.DataFrame:
@@ -27,4 +27,4 @@ async def fetch_single(session, row, interval, start_dt, end_dt, auth_dict) -> p
                 df["Timestamp"] = pd.to_datetime(df["Timestamp"]).dt.tz_localize(None)
                 return df
             return pd.DataFrame()
-        raise RetryableError(f"Zerodha HTTP {resp.status}")
+        raise_for_broker_status("Zerodha", resp.status, resp.headers)

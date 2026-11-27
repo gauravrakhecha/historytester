@@ -15,36 +15,94 @@ from quantdesk.strategy.indicators import emit_indicator
 from quantdesk.strategy.models import StrategyConfig, safe_name
 
 
+def _single_rule_cond(r: dict, idx: int, prefix: str, src_map: Dict[str, str]) -> str:
+    """Emit the Python boolean expression for a single rule (with optional timing & negate)."""
+    v1 = src_map.get(r["var1"], f"self.{r['var1']}")
+    op = r["operator"]
+    is_num = bool(r.get("is_num"))
+    v2_ref = f"self.{prefix}_rule_{idx}_val" if is_num else src_map.get(r["var2"], f"self.{r['var2']}")
+
+    def _pair(off_expr: str) -> str:
+        """Condition at negative bar offset ``off_expr`` (e.g. '-1' or '-1 - _k')."""
+        v2_cur = v2_ref if is_num else f"{v2_ref}[{off_expr}]"
+        if op == "Crosses Above":
+            prev_off = f"{off_expr} - 1" if off_expr != "-1" else "-2"
+            v2_prev = v2_ref if is_num else f"{v2_ref}[{prev_off}]"
+            return f"({v1}[{prev_off}] <= {v2_prev} and {v1}[{off_expr}] > {v2_cur})"
+        if op == "Crosses Below":
+            prev_off = f"{off_expr} - 1" if off_expr != "-1" else "-2"
+            v2_prev = v2_ref if is_num else f"{v2_ref}[{prev_off}]"
+            return f"({v1}[{prev_off}] >= {v2_prev} and {v1}[{off_expr}] < {v2_cur})"
+        return f"({v1}[{off_expr}] {op} {v2_cur})"
+
+    timing = r.get("timing", "now") or "now"
+    n_bars = max(1, int(r.get("timing_bars", 1) or 1))
+    is_cross = op in ("Crosses Above", "Crosses Below")
+
+    if timing == "now":
+        cond = _pair("-1")
+    elif timing == "bars_ago":
+        min_len = n_bars + (2 if is_cross else 1)
+        cur_idx = -1 - n_bars
+        prev_idx = -2 - n_bars
+        v2_cur = v2_ref if is_num else f"{v2_ref}[{cur_idx}]"
+        if op == "Crosses Above":
+            v2_prev = v2_ref if is_num else f"{v2_ref}[{prev_idx}]"
+            inner = f"({v1}[{prev_idx}] <= {v2_prev} and {v1}[{cur_idx}] > {v2_cur})"
+        elif op == "Crosses Below":
+            v2_prev = v2_ref if is_num else f"{v2_ref}[{prev_idx}]"
+            inner = f"({v1}[{prev_idx}] >= {v2_prev} and {v1}[{cur_idx}] < {v2_cur})"
+        else:
+            inner = f"({v1}[{cur_idx}] {op} {v2_cur})"
+        cond = f"(len(self.data.Close) >= {min_len} and {inner})"
+    elif timing == "within_last":
+        bound = f"min({n_bars}, max(0, len(self.data.Close) - 1))" if is_cross else f"min({n_bars}, len(self.data.Close))"
+        cond = f"any({_pair('-1 - _k')} for _k in range({bound}))"
+    elif timing == "consecutive":
+        min_len = n_bars + (1 if is_cross else 0)
+        cond = f"(len(self.data.Close) >= {min_len} and all({_pair('-1 - _k')} for _k in range({n_bars})))"
+    else:
+        cond = _pair("-1")
+
+    if r.get("negate"):
+        cond = f"(not {cond})" if cond.startswith("(") else f"(not ({cond}))"
+    return cond
+
+
 def _gen_logic(rules: list, prefix: str, src_map: Dict[str, str]) -> str:
-    """Reproduce the original ``gen_logic`` (upstox_app.py:2096-2117)."""
+    """Emit boolean rule expression supporting parenthesized ``group``s, ``negate``, and ``timing``.
+
+    When all rules share a single group and have default ``negate=False`` and ``timing='now'``,
+    the emitted expression is identical to the legacy ``gen_logic`` output (parity-safe).
+    """
     if not rules:
         return "False"
-    conds = []
+
+    # Partition contiguous rules sharing the same ``group`` id into parenthesized groups.
+    groups: list[tuple[str, list[str]]] = []
+    cur_gid = None
     for idx, r in enumerate(rules):
-        v1 = src_map.get(r["var1"], f"self.{r['var1']}")
-        op = r["operator"]
-        if r.get("is_num"):
-            v2 = f"self.{prefix}_rule_{idx}_val"
-            if op == "Crosses Above":
-                cond = f"({v1}[-2] <= {v2} and {v1}[-1] > {v2})"
-            elif op == "Crosses Below":
-                cond = f"({v1}[-2] >= {v2} and {v1}[-1] < {v2})"
-            else:
-                cond = f"({v1}[-1] {op} {v2})"
+        gid = int(r.get("group", 0) or 0)
+        cond = _single_rule_cond(r, idx, prefix, src_map)
+        if cur_gid is None or gid != cur_gid:
+            joiner = "and" if r.get("logic", "IF") == "AND" else "or"
+            groups.append((joiner, [cond]))
+            cur_gid = gid
         else:
-            v2 = src_map.get(r["var2"], f"self.{r['var2']}")
-            if op == "Crosses Above":
-                cond = f"({v1}[-2] <= {v2}[-2] and {v1}[-1] > {v2}[-1])"
-            elif op == "Crosses Below":
-                cond = f"({v1}[-2] >= {v2}[-2] and {v1}[-1] < {v2}[-1])"
-            else:
-                cond = f"({v1}[-1] {op} {v2}[-1])"
-        if idx == 0:
-            conds.append(cond)
+            logic = "and" if r.get("logic", "AND") == "AND" else "or"
+            groups[-1][1].append(f" {logic} {cond}")
+
+    if len(groups) == 1:
+        return "".join(groups[0][1])
+
+    out_parts = []
+    for g_idx, (joiner, items) in enumerate(groups):
+        grp_expr = f"({''.join(items)})"
+        if g_idx == 0:
+            out_parts.append(grp_expr)
         else:
-            logic = "and" if r["logic"] == "AND" else "or"
-            conds.append(f" {logic} {cond}")
-    return "".join(conds)
+            out_parts.append(f" {joiner} {grp_expr}")
+    return "".join(out_parts)
 
 
 def build_strategy_code(cfg: StrategyConfig) -> str:
@@ -82,6 +140,10 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
     htf_minutes = int(getattr(rm, "htf_minutes", 60) or 60)
     htf_ema_period = int(getattr(rm, "htf_ema_period", 50) or 50)
     intraday_square_off = bool(getattr(rm, "intraday_square_off", False))
+    # v8.2 — intraday entry time window filter
+    entry_time_filter = bool(getattr(rm, "entry_time_filter", False))
+    entry_start_time = str(getattr(rm, "entry_start_time", "09:30") or "09:30")
+    entry_end_time = str(getattr(rm, "entry_end_time", "14:45") or "14:45")
 
     has_zones = len(range_zones) > 0
 
@@ -93,7 +155,8 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
     for ind in indicators:
         name = safe_name(ind["name"])
         for k, v in ind.get("params", {}).items():
-            code += f"    {name}_{k} = {v}\n"
+            val_repr = repr(v) if isinstance(v, str) else f"{v}"
+            code += f"    {name}_{k} = {val_repr}\n"
 
     # class-level numeric rule thresholds
     for i, r in enumerate(buy_rules):
@@ -144,6 +207,8 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
         code += "        _htf_idx = pd.DatetimeIndex(self.data.index)\n"
         code += "        _htf_close = pd.Series(np.asarray(self.data.Close), index=_htf_idx)\n"
         code += f"        _htf_ema_res = _htf_close.resample('{htf_minutes}min').last().dropna().ewm(span={htf_ema_period}, adjust=False).mean()\n"
+        # Shift by 1 HTF bar so only completed higher-timeframe bars are visible (no lookahead)
+        code += "        _htf_ema_res = _htf_ema_res.shift(1)\n"
         code += "        _htf_ema_full = _htf_ema_res.reindex(_htf_idx, method='ffill').to_numpy()\n"
         code += "        self._htf_ema = self.I(lambda: _htf_ema_full, name='HTF_EMA', overlay=True)\n"
 
@@ -351,6 +416,11 @@ def build_strategy_code(cfg: StrategyConfig) -> str:
         code += "            _block_new_entries = True\n"
         code += "        if _zone_close_position:\n"
         code += "            if self.position: self.position.close()\n"
+        code += "            _block_new_entries = True\n"
+
+    if entry_time_filter:
+        code += "        _bar_hm = self.data.index[-1].strftime('%H:%M')\n"
+        code += f"        if not ({entry_start_time!r} <= _bar_hm <= {entry_end_time!r}):\n"
         code += "            _block_new_entries = True\n"
 
     code += "        if self.equity <= 0: return  # Bankrupt\n"

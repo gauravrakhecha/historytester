@@ -13,15 +13,63 @@ from __future__ import annotations
 class RetryableError(Exception):
     """Raised by a broker fetch when the orchestrator should retry the chunk.
 
-    Optionally carries the HTTP ``status`` and a parsed ``retry_after`` (seconds)
-    so the orchestrator can honour an explicit rate-limit back-off (HTTP 429).
+    Optionally carries the HTTP ``status``, a parsed ``retry_after`` (seconds)
+    so the orchestrator can honour an explicit rate-limit back-off (HTTP 429),
+    and ``retryable`` (default ``True``) to allow fast-failing when ``False``.
     """
 
-    def __init__(self, message: str = "", *, status: int | None = None,
-                 retry_after: float | None = None):
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        status: int | None = None,
+        retry_after: float | None = None,
+        retryable: bool = True,
+    ):
         super().__init__(message)
         self.status = status
         self.retry_after = retry_after
+        self.retryable = retryable
+
+
+class NonRetryableError(Exception):
+    """Raised by a broker fetch when retrying cannot succeed (e.g. HTTP 400/401/403/404)."""
+
+    def __init__(self, message: str = "", *, status: int | None = None):
+        super().__init__(message)
+        self.status = status
+        self.retryable = False
+
+
+_NON_RETRYABLE_STATUSES = frozenset({400, 401, 403, 404})
+
+
+def parse_retry_after(value: str | None) -> float | None:
+    """Parse a ``Retry-After`` header (delta-seconds form) into seconds.
+
+    Only the numeric delta-seconds form is honoured; the rarely-used HTTP-date
+    form degrades to ``None`` (the orchestrator then falls back to its own
+    exponential back-off), which is safe.
+    """
+    if not value:
+        return None
+    try:
+        secs = float(value.strip())
+        return secs if secs >= 0 else None
+    except (ValueError, AttributeError):
+        return None
+
+
+def raise_for_broker_status(broker: str, status: int, headers=None) -> None:
+    """Raise ``NonRetryableError`` on 400/401/403/404 or ``RetryableError`` otherwise."""
+    if status in _NON_RETRYABLE_STATUSES:
+        raise NonRetryableError(f"{broker} HTTP {status}", status=status)
+    retry_after = parse_retry_after(headers.get("Retry-After")) if headers is not None else None
+    raise RetryableError(
+        f"{broker} HTTP {status}",
+        status=status,
+        retry_after=retry_after,
+    )
 
 
 class ChunkDownloadError(Exception):

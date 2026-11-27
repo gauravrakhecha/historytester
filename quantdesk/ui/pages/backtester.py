@@ -28,9 +28,20 @@ from quantdesk.core.db import get_download_history
 from quantdesk.costs import india
 from quantdesk.data.loader import load_indexed
 from quantdesk.data.quality import validate as validate_quality
-from quantdesk.strategy.models import OHLCV, safe_name, selectable_columns
+from quantdesk.strategy.models import OHLCV, classify_columns, safe_name, selectable_columns
 from quantdesk.viz import charts
-from quantdesk.viz.charts import render_plotly_backtest
+from quantdesk.viz.charts import render_openalgo_backtest, render_plotly_backtest
+
+
+def _openalgo_chart_height(indicators) -> int:
+    if not indicators:
+        return 700
+    panels = {
+        info["group"]
+        for info in classify_columns(indicators).values()
+        if info.get("placement") == "panel"
+    }
+    return min(1060, 700 + 120 * len(panels))
 
 # Optimiser "maximize" choices -> backtesting.py stat keys (₹ label maps to the $ key).
 # "Probabilistic Sharpe (PSR)" is a v7 Phase-C objective: Optuna maximizes PSR per trial; grid mode
@@ -94,7 +105,7 @@ def _render_isoos(info: dict) -> None:
         _row("# Trades", "# Trades", "{:.0f}"),
     ]
     st.markdown("##### In-Sample vs Out-of-Sample (overfitting check)")
-    st.dataframe(pd.DataFrame(rows).set_index("Metric"), use_container_width=True)
+    st.dataframe(pd.DataFrame(rows).set_index("Metric"), width="stretch")
 
 
 def _fmt_prob(p) -> str:
@@ -129,12 +140,12 @@ def _render_validation(stats, info) -> None:
         with st.expander("📈 Parameter stability (robust plateau vs fragile spike?)", expanded=False):
             if hm is not None and len(hm) > 1:
                 st.plotly_chart(charts.parameter_stability_heatmap(hm, meta.get("maximize", "Objective")),
-                                use_container_width=True)
+                                width="stretch")
                 st.caption("A broad bright region = robust optimum; a lone peak in a sea of poor values = overfit.")
             elif trials is not None and not trials.empty:
                 st.caption("Optuna trials (objective per configuration):")
                 st.dataframe(trials.sort_values("objective", ascending=False).round(4),
-                             use_container_width=True)
+                             width="stretch")
             else:
                 st.info("No parameter-stability surface available for this run.")
 
@@ -157,7 +168,7 @@ def _render_monte_carlo(trades, init_cash: float) -> None:
                   help="5th–95th percentile of total return across reshuffled trade orders.")
         c3.metric("Worst drawdown (P5)", f"{mc['mdd_p5']:.1f}%",
                   help=f"Median {mc['mdd_p50']:.1f}% — how bad luck-of-ordering could get.")
-        st.plotly_chart(charts.monte_carlo_fan(mc["bands"]), use_container_width=True)
+        st.plotly_chart(charts.monte_carlo_fan(mc["bands"]), width="stretch")
         st.caption(f"{mc['n_sims']:,} bootstraps over {mc['n_trades']} trades. The realized curve should "
                    "sit inside the band; hugging an edge = the result leaned on trade ordering / luck.")
 
@@ -173,7 +184,7 @@ def _render_walk_forward(selected_file, code, opt_kwargs, maximize_key, opt_mode
     n_windows = w1.number_input("Windows", 2, 12, 4, key="wf_windows")
     oos_frac = w2.slider("OOS fraction (total)", 0.2, 0.6, 0.4, step=0.05, key="wf_oos")
     anchored = w3.selectbox("Window type", ["Anchored", "Rolling"], key="wf_anchor") == "Anchored"
-    if not st.button("Run Walk-Forward (slower)", use_container_width=True):
+    if not st.button("Run Walk-Forward (slower)", width="stretch"):
         return
     if not os.path.exists(selected_file):
         st.error("Data file not found on disk.")
@@ -199,8 +210,8 @@ def _render_walk_forward(selected_file, code, opt_kwargs, maximize_key, opt_mode
     m2.metric("Combined OOS Return", f"{cor:.1f}%" if not pd.isna(cor) else "N/A")
     m3.metric("Windows", res["n_windows"])
     if len(res["stitched_equity"]):
-        st.plotly_chart(charts.walk_forward_equity(res["stitched_equity"]), use_container_width=True)
-    st.dataframe(res["windows"], use_container_width=True)
+        st.plotly_chart(charts.walk_forward_equity(res["stitched_equity"]), width="stretch")
+    st.dataframe(res["windows"], width="stretch")
     st.caption("Each window re-optimizes on its in-sample slice, then trades those frozen params on the "
                "next unseen slice. Consistent OOS results across windows is the real robustness test.")
 
@@ -231,7 +242,7 @@ def _render_charges_panel(stats, trades, segment: str, init_cash: float) -> dict
         [{"Charge": k.replace("_", " ").title(), "₹": ch[k]}
          for k in ["stt", "stamp_duty", "exchange", "sebi", "brokerage", "gst", "total"]]
     ).set_index("Charge")
-    st.dataframe(bd, use_container_width=True)
+    st.dataframe(bd, width="stretch")
     st.caption(f"Segment: **{segment}** · {ch['num_trades']} trades · Decimal per-leg charges. These are "
                "applied **inside the simulation**, so the Return / Sharpe / Drawdown and every optimizer, "
                "walk-forward and Monte-Carlo metric above is already net of them. (One-sided STT/stamp are "
@@ -266,12 +277,12 @@ def _render_quantstats(stats) -> None:
 
 def _lot_override(code: str) -> str:
     parsed_lot = 1
-    m = re.search(r"lot_size\s*=\s*(\d+)", code)
+    m = re.search(r"(?m)^[ \t]*lot_size\s*=\s*(\d+)", code)
     if m:
         parsed_lot = int(m.group(1))
     new_lot = st.number_input("Override Lot Size", value=parsed_lot, min_value=1, step=1, help="Change lot size for this backtest without recompiling.")
     if new_lot != parsed_lot:
-        code = re.sub(r"lot_size\s*=\s*\d+", f"lot_size = {new_lot}", code)
+        code = re.sub(r"(?m)^([ \t]*lot_size\s*=\s*)\d+", rf"\g<1>{new_lot}", code, count=1)
     return code
 
 
@@ -355,13 +366,16 @@ def _render_single(ctx, history):
                         opt_kwargs_dynamic[opt["var"]] = np.arange(float(start), float(end), float(step)).tolist()
         opt_maximize = st.selectbox("Maximize Metric", list(_MAXIMIZE_MAP.keys()))
 
-    pro_chart = st.checkbox(
-        "📊 Also render the engine-native (Bokeh) 'Pro' chart",
-        help="backtesting.py's built-in linked chart: price + indicators + equity + drawdown + "
-             "trade markers, auto-downsampled. Runs one extra pass, so it's a touch slower.",
+    chart_engine = st.radio(
+        "Chart Engine",
+        ["OpenAlgo Interactive (Default)", "Plotly"],
+        index=0,
+        horizontal=True,
+        key="backtester_chart_engine",
+        help="OpenAlgo Interactive renders fast offline canvas candlesticks, overlays, sub-panels, and trade markers.",
     )
 
-    if st.button("Run Backtest", use_container_width=True):
+    if st.button("Run Backtest", width="stretch"):
         if not os.path.exists(selected_file):
             st.error("Data file not found on disk.")
             return
@@ -423,13 +437,13 @@ def _render_single(ctx, history):
 
                 # Cast to str for display: the stats Series mixes floats with Timedelta
                 # (Duration, Max Drawdown Duration) which Arrow can't serialise directly.
-                st.dataframe(pd.DataFrame(clean_stats.astype(str), columns=["Value"]), use_container_width=True)
+                st.dataframe(pd.DataFrame(clean_stats.astype(str), columns=["Value"]), width="stretch")
 
                 st.subheader("Year-wise Performance")
                 try:
                     yearly_df = metrics.yearly_performance(stats["_equity_curve"])
                     if not yearly_df.empty:
-                        st.dataframe(yearly_df, use_container_width=True)
+                        st.dataframe(yearly_df, width="stretch")
                 except Exception:
                     st.warning("Could not compute year-wise performance.")
 
@@ -451,7 +465,7 @@ def _render_single(ctx, history):
                                    "non-positive edge sizes at zero.")
                     for col in trades.select_dtypes(include=["float"]).columns:
                         trades[col] = trades[col].round(3)
-                    st.dataframe(trades, use_container_width=True)
+                    st.dataframe(trades, width="stretch")
                     st.caption("MAE_pct / MFE_pct = worst / best unrealised move during each trade; "
                                "R_multiple = return ÷ worst adverse excursion.")
                     dl1, dl2 = st.columns(2)
@@ -460,7 +474,7 @@ def _render_single(ctx, history):
                         data=trades.to_csv(index=False).encode("utf-8"),
                         file_name="enriched_trade_log.csv",
                         mime="text/csv",
-                        use_container_width=True,
+                        width="stretch",
                     )
                     try:  # per-trade India tax-format breakdown (statutory charges per trade)
                         tax_df = metrics.tax_breakdown(trades, segment)
@@ -469,7 +483,7 @@ def _render_single(ctx, history):
                             data=tax_df.to_csv(index=False).encode("utf-8"),
                             file_name="india_tax_breakdown.csv",
                             mime="text/csv",
-                            use_container_width=True,
+                            width="stretch",
                             help="Per-trade STT / stamp / exchange / SEBI / brokerage / GST with "
                                  "gross vs net P&L — for your tax records.",
                         )
@@ -478,7 +492,6 @@ def _render_single(ctx, history):
                 else:
                     st.info("No trades executed.")
 
-                st.subheader("Interactive Strategy Chart (Plotly)")
                 try:
                     out_df = df.copy()
                     out_df["Buy_Signal"] = 0
@@ -489,30 +502,26 @@ def _render_single(ctx, history):
                                 out_df.iloc[t["EntryBar"], out_df.columns.get_loc("Buy_Signal")] = 1
                             if t["ExitBar"] < len(out_df):
                                 out_df.iloc[t["ExitBar"], out_df.columns.get_loc("Sell_Signal")] = 1
-                    from quantdesk.strategy.models import OHLCV, safe_name
-                    for var_name in [c for c in selectable_columns(st.session_state.get("indicators", [])) if c not in OHLCV]:
+                    indicators = st.session_state.get("indicators", [])
+                    for var_name in [c for c in selectable_columns(indicators) if c not in OHLCV]:
                         attr = safe_name(var_name)
                         if hasattr(strat_instance, attr):
                             arr = getattr(strat_instance, attr)
                             if hasattr(arr, "__len__") and len(arr) == len(out_df):
                                 out_df[var_name] = list(arr)
-                    st.plotly_chart(
-                        render_plotly_backtest(out_df, trades, st.session_state.get("indicators", [])),
-                        use_container_width=True,
-                    )
+                    if chart_engine == "Plotly":
+                        st.subheader("Interactive Strategy Chart (Plotly)")
+                        st.plotly_chart(
+                            render_plotly_backtest(out_df, trades, indicators),
+                            width="stretch",
+                        )
+                    else:
+                        st.subheader("Interactive Strategy Chart (OpenAlgo)")
+                        chart_height = _openalgo_chart_height(indicators)
+                        html = render_openalgo_backtest(out_df, trades, indicators, height=chart_height)
+                        components.html(html, height=chart_height, scrolling=False)
                 except Exception as plot_e:
-                    st.warning(f"Could not generate Plotly chart: {plot_e}")
-
-                # Step 6: optional engine-native (Bokeh) "Pro" chart
-                if pro_chart:
-                    st.subheader("Engine-native Chart (Bokeh)")
-                    try:
-                        with st.spinner("Rendering engine-native chart…"):
-                            html = engine.native_bokeh_html(df, code, init_cash, params["total_commission"], params["margin"],
-                                                            segment=segment, slippage=params["slippage"])
-                        components.html(html, height=620, scrolling=True)
-                    except Exception as be:
-                        st.warning(f"Could not generate the engine-native Bokeh chart: {be}")
+                    st.warning(f"Could not generate interactive chart: {plot_e}")
 
                 # #C Real India charges — now applied inside the sim; this is the reconciliation
                 charges = _render_charges_panel(stats, trades, segment, init_cash)
@@ -533,11 +542,26 @@ def _render_single(ctx, history):
                     "range_zones": st.session_state.get("range_zones", []),
                     "risk_management": {
                         "mode": st.session_state.get("rm_mode", "None (Use Sell Rules Only)"),
-                        "sl_pct": st.session_state.get("sl_pct", 0),
-                        "tp_pct": st.session_state.get("tp_pct", 0),
-                        "trail_pct": st.session_state.get("trail_pct", 0),
+                        "sl_pct": st.session_state.get("sl_pct", 2.0),
+                        "tp_pct": st.session_state.get("tp_pct", 5.0),
+                        "trail_pct": st.session_state.get("trail_pct", 2.0),
                         "strat_dir": st.session_state.get("strat_dir", "Long Only"),
+                        "risk_pct": st.session_state.get("risk_pct", 1.0),
+                        "max_dd_halt_pct": st.session_state.get("max_dd_halt_pct", 0.0),
+                        "atr_period": st.session_state.get("atr_period", 14),
+                        "atr_stop_mult": st.session_state.get("atr_stop_mult", 2.0),
+                        "max_bars_in_trade": st.session_state.get("max_bars_in_trade", 0),
+                        "breakeven_trigger_pct": st.session_state.get("breakeven_trigger_pct", 0.0),
+                        "partial_exit_pct": st.session_state.get("partial_exit_pct", 0.0),
+                        "partial_trigger_pct": st.session_state.get("partial_trigger_pct", 0.0),
+                        "htf_bias": st.session_state.get("htf_bias", False),
+                        "htf_minutes": st.session_state.get("htf_minutes", 60),
+                        "htf_ema_period": st.session_state.get("htf_ema_period", 50),
+                        "intraday_square_off": st.session_state.get("intraday_square_off", False),
                     },
+                    "pos_size_type": st.session_state.get("pos_size_type", "Fixed Value per Trade (₹) (Default)"),
+                    "fixed_pos_value": st.session_state.get("fixed_pos_value", 50000.0),
+                    "lot_size": st.session_state.get("lot_size", 1),
                 }
                 try:
                     eqd = metrics.equity_curve_daily(stats)
@@ -551,7 +575,8 @@ def _render_single(ctx, history):
                     "parameters": json.dumps(info.get("best_params", {}) if info else {}),
                     "return_pct": sm["return_pct"], "max_drawdown_pct": sm["max_drawdown_pct"],
                     "win_rate_pct": sm["win_rate_pct"], "num_trades": sm["num_trades"],
-                    "sharpe_ratio": sm["sharpe"], "plot_file": "plotly_native",
+                    "sharpe_ratio": sm["sharpe"],
+                    "plot_file": "plotly_native" if chart_engine == "Plotly" else "openalgo_interactive",
                     "full_stats": clean_stats.to_json(), "strategy_config": json.dumps(config_dict),
                     "profit_factor": sm["profit_factor"], "expectancy_pct": sm["expectancy_pct"],
                     "sqn": sm["sqn"], "buy_hold_return_pct": sm["buy_hold_return_pct"],
@@ -585,8 +610,16 @@ def _render_batch(ctx, history):
         st.code(code, language="python")
     st.subheader("Runtime Overrides")
     code = _lot_override(code)
+    seg_choice = st.selectbox(
+        "Charges segment",
+        ["Flat commission (legacy)"] + india.SEGMENTS,
+        index=0,
+        key="batch_segment",
+        help="Choose an India market segment to apply per-leg statutory charges + slippage inside each batch run, or keep flat commission.",
+    )
+    segment = None if seg_choice == "Flat commission (legacy)" else seg_choice
 
-    if st.button("Run Batch Backtest", use_container_width=True):
+    if st.button("Run Batch Backtest", width="stretch"):
         if not batch_folder or not os.path.exists(batch_folder):
             st.error("Invalid folder path.")
             return
@@ -602,7 +635,10 @@ def _render_batch(ctx, history):
         def _cb(p, t):
             pbar.progress(min(1.0, p), text=t)
 
-        out = batch_mod.run_batch(files, code, params["initial_capital"], params["total_commission"], params["margin"], strat_dir_name, _cb)
+        out = batch_mod.run_batch(
+            files, code, params["initial_capital"], params["total_commission"], params["margin"],
+            strat_dir_name, _cb, segment=segment, slippage=params["slippage"],
+        )
         results, failed, table = out["results"], out["failed"], out["table"]
 
         if results:
@@ -610,27 +646,29 @@ def _render_batch(ctx, history):
             st.caption("ℹ️ These are **independent single-asset runs** (each used the full capital) — the "
                        "AVERAGE row is a mean across runs, **not** a combined-portfolio result. "
                        "Equity-only runs may be **unadjusted for corporate actions** depending on how the file was downloaded.")
-            st.dataframe(table.style.format(precision=3), use_container_width=True)
-            batch_mod.save_batch_to_db(results, st.session_state.get("strategy_label", "Batch Custom"),
-                                       st.session_state.get("indicators", []), code=code)
+            st.dataframe(table.style.format(precision=3), width="stretch")
+            batch_mod.save_batch_to_db(
+                results, st.session_state.get("strategy_label", "Batch Custom"),
+                st.session_state.get("indicators", []), code=code, segment=segment,
+            )
             st.download_button(
                 label="📥 Export Batch Results to CSV",
                 data=table.to_csv(index=False).encode("utf-8"),
                 file_name="batch_backtest_results.csv",
                 mime="text/csv",
-                use_container_width=True,
+                width="stretch",
             )
             if failed:
                 with st.expander(f"⚠️ {len(failed)} Files Failed — Click to see details"):
-                    st.dataframe(pd.DataFrame(failed), use_container_width=True)
+                    st.dataframe(pd.DataFrame(failed), width="stretch")
         else:
             st.error("Batch completed but no files were successfully backtested.")
             if failed:
-                st.dataframe(pd.DataFrame(failed), use_container_width=True)
+                st.dataframe(pd.DataFrame(failed), width="stretch")
 
 
 def render(ctx):
-    st.header("🚀 Backtester & Optimizer (Plotly Edition)")
+    st.header("🚀 Backtester & Optimizer")
     bt_mode = st.radio("Backtest Mode", ["Single File", "Folder Batch Mode"], horizontal=True)
     st.markdown("---")
     history = get_download_history()

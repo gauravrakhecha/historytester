@@ -18,6 +18,7 @@ import ta
 
 from quantdesk.strategy.indicators import (
     alma_vec,
+    compute_custom_formula,
     dist_from_ma_atr_vec,
     lr_slope_vec,
     ma_slope_atr_vec,
@@ -25,6 +26,9 @@ from quantdesk.strategy.indicators import (
     r2_vec,
     ratio_to_sma_vec,
     ret_n_vec,
+    rolling_stat_vec,
+    series_math_vec,
+    shift_vec,
     zscore_vec,
 )
 from quantdesk.strategy.validation import assert_safe_ast
@@ -58,6 +62,9 @@ def _namespace() -> dict:
         "ratio_to_sma_vec": ratio_to_sma_vec, "dist_from_ma_atr_vec": dist_from_ma_atr_vec,
         "ma_slope_atr_vec": ma_slope_atr_vec, "zscore_vec": zscore_vec,
         "pctile_rank_vec": pctile_rank_vec, "ret_n_vec": ret_n_vec,
+        # v8.2 custom building-block & safe formula helpers
+        "series_math_vec": series_math_vec, "rolling_stat_vec": rolling_stat_vec,
+        "shift_vec": shift_vec, "compute_custom_formula": compute_custom_formula,
         # v7.1 Task 3 — risk-based position sizing helpers (pure, unit-tested; see quantdesk.risk)
         "fixed_value_qty": fixed_value_qty, "percent_equity_qty": percent_equity_qty,
         "risk_pct_qty": risk_pct_qty, "atr_risk_qty": atr_risk_qty, "atr_stop": _atr_stop,

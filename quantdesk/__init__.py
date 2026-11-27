@@ -18,4 +18,4 @@ Layout
 - ``ui``            : Streamlit components + one module per page
 """
 
-__version__ = "1.0.0"
+__version__ = "9.0.0"

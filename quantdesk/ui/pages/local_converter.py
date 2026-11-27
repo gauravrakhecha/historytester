@@ -6,6 +6,7 @@ import os
 import pandas as pd
 import streamlit as st
 
+from quantdesk.data.loader import normalize_timestamps
 from quantdesk.data.resample import resample_dataframe
 
 
@@ -35,7 +36,7 @@ def render(ctx):
                 with rc2:
                     tf_end_loc = st.number_input("End Range (Mins)", min_value=1, value=58, key="loc_end")
 
-    if st.button("🚀 Start Offline Batch Conversion", type="primary", use_container_width=True):
+    if st.button("🚀 Start Offline Batch Conversion", type="primary", width="stretch"):
         if not os.path.exists(source_folder):
             st.error("Source folder does not exist.")
         elif not dest_folder:
@@ -70,14 +71,24 @@ def render(ctx):
                     status.text(f"Processing {file_name} ({i+1}/{len(csv_files)})...")
                     try:
                         df = pd.read_parquet(file_path) if file_path.endswith(".parquet") else pd.read_csv(file_path)
+                        if "Timestamp" not in df.columns and (
+                            df.index.name == "Timestamp" or isinstance(df.index, pd.DatetimeIndex)
+                        ):
+                            df = df.reset_index()
+                            if "Timestamp" not in df.columns and "index" in df.columns:
+                                df = df.rename(columns={"index": "Timestamp"})
                         if "Timestamp" in df.columns:
-                            df["Timestamp"] = pd.to_datetime(df["Timestamp"])
+                            df["Timestamp"] = normalize_timestamps(df["Timestamp"])
                             if conv_mode == "1:1 Format (CSV to Parquet)":
-                                out_name = file_name.replace(".csv", ".parquet")
-                                if not out_name.endswith(".parquet"):
-                                    out_name += ".parquet"
-                                os.makedirs(dest_folder, exist_ok=True)
-                                out_path = os.path.join(dest_folder, out_name)
+                                rel_dir = os.path.relpath(os.path.dirname(file_path), source_folder)
+                                target_dir = dest_folder if rel_dir == "." else os.path.join(dest_folder, rel_dir)
+                                out_name = (
+                                    file_name[:-4] + ".parquet"
+                                    if file_name.lower().endswith(".csv")
+                                    else (file_name if file_name.lower().endswith(".parquet") else f"{file_name}.parquet")
+                                )
+                                os.makedirs(target_dir, exist_ok=True)
+                                out_path = os.path.join(target_dir, out_name)
                                 df.to_parquet(out_path, engine="pyarrow")
                                 converted_count += 1
                             else:

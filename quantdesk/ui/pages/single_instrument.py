@@ -40,7 +40,7 @@ def render(ctx):
         to_date = st.date_input("To Date", today)
         local_path, csv_dir = C.render_save_folders("single", ctx.default_parquet_dir, "📁 Parquet Save Folder (blank = CSV download button)")
 
-    if st.button("⚡ Fetch Fast", use_container_width=True):
+    if st.button("⚡ Fetch Fast", width="stretch"):
         if selected_row is None:
             st.error("❌ Please select an instrument first.")
         else:

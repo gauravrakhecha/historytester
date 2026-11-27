@@ -180,7 +180,7 @@ def render(ctx):
                                                 value=_sr.get("csv_data_dir", ""), key="opt_csv_dir")
                 st.caption(format_summary(opt_csv_dir))
 
-            if st.button("🚀 Download & Extract Timeframes", use_container_width=True, type="primary"):
+            if st.button("🚀 Download & Extract Timeframes", width="stretch", type="primary"):
                 items = bulk_df.to_dict("records")
                 tfs_opt = [1]
                 if tf_mode_opt == "Specific Timeframes":
@@ -196,6 +196,7 @@ def render(ctx):
                 status = st.empty()
 
                 downloaded_data = run_options_download(items, token, opt_from_d, opt_to_d, C.make_progress(bar))
+                empty_count = 0
 
                 if local_path:
                     try:
@@ -215,7 +216,14 @@ def render(ctx):
                                     written = save_frame(df_tf, f_path, local_path, opt_csv_dir)
                                     log_download("Upstox", c["trading_symbol"], c["instrument_key"], f"{tf} Minute", opt_from_d, opt_to_d, primary_path(written, f_path))
                                     saved_count += 1
+                            else:
+                                empty_count += 1
                         status.success(f"✅ Saved {saved_count} total Parquet files across {len(tfs_opt)} timeframes inside {base_folder}")
+                        if empty_count > 0:
+                            st.warning(
+                                f"⚠️ {empty_count} of {len(downloaded_data)} requested contract(s) returned empty candle lists "
+                                "and were skipped."
+                            )
                     except Exception as e:
                         st.error(f"Error saving locally: {e}")
                 else:
@@ -230,5 +238,12 @@ def render(ctx):
                                     pq_buf = io.BytesIO()
                                     df_tf.to_parquet(pq_buf, engine="pyarrow")
                                     zf.writestr(f"{tf}Min/{c['trading_symbol']}.parquet", pq_buf.getvalue())
+                            else:
+                                empty_count += 1
                     status.success("Done creating ZIP archive!")
+                    if empty_count > 0:
+                        st.warning(
+                            f"⚠️ {empty_count} of {len(downloaded_data)} requested contract(s) returned empty candle lists "
+                            "and were omitted from the ZIP."
+                        )
                     st.download_button("Download Generated ZIP", buf.getvalue(), f"Options_{st.session_state.current_expiry}_Timeframes.zip", "application/zip")

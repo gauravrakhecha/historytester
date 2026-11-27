@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from quantdesk.brokers.base import RetryableError
+from quantdesk.brokers.base import raise_for_broker_status
 
 
 async def fetch_single(session, row, interval, start_dt, end_dt, auth_dict) -> pd.DataFrame:
@@ -36,7 +36,7 @@ async def fetch_single(session, row, interval, start_dt, end_dt, auth_dict) -> p
                     len(d.get(k, [])) for k in ["start_Time", "open", "high", "low", "close", "volume"]
                 )
                 if min_len > 0:
-                    return pd.DataFrame(
+                    df = pd.DataFrame(
                         {
                             "Timestamp": pd.to_datetime(d["start_Time"][:min_len]),
                             "Open": d.get("open", [])[:min_len],
@@ -46,5 +46,8 @@ async def fetch_single(session, row, interval, start_dt, end_dt, auth_dict) -> p
                             "Volume": d.get("volume", [])[:min_len],
                         }
                     )
+                    if df["Timestamp"].dt.tz is not None:
+                        df["Timestamp"] = df["Timestamp"].dt.tz_localize(None)
+                    return df
             return pd.DataFrame()
-        raise RetryableError(f"Dhan HTTP {resp.status}")
+        raise_for_broker_status("Dhan", resp.status, resp.headers)

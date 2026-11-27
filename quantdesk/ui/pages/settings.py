@@ -1,11 +1,30 @@
 """Settings page (upstox_app.py:1380-1435)."""
 from __future__ import annotations
 
+import math
 import os
 
 import streamlit as st
 
 from quantdesk.core import settings_repo
+
+
+def _parse_float(raw: str, label: str, *, min_val: float | None = None, min_inclusive: bool = True,
+                 max_val: float | None = None, max_inclusive: bool = True) -> tuple[float | None, str | None]:
+    """Parse and range-check a numeric settings input."""
+    try:
+        val = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return None, f"{label} must be a valid number."
+    if not math.isfinite(val):
+        return None, f"{label} must be a finite number."
+    if min_val is not None and (val < min_val if min_inclusive else val <= min_val):
+        op = ">=" if min_inclusive else ">"
+        return None, f"{label} must be {op} {min_val}."
+    if max_val is not None and (val > max_val if max_inclusive else val >= max_val):
+        op = "<=" if max_inclusive else "<"
+        return None, f"{label} must be {op} {max_val}."
+    return val, None
 
 
 def render(ctx):
@@ -63,20 +82,41 @@ def render(ctx):
             )
 
         if st.form_submit_button("Save Settings"):
-            os.makedirs(plot_dir, exist_ok=True)
-            os.makedirs(parquet_data_dir, exist_ok=True)
-            if csv_data_dir:
-                os.makedirs(csv_data_dir, exist_ok=True)
-            settings_repo.save(
-                {
-                    "brokerage_commission": commission,
-                    "slippage": slippage,
-                    "brokerage_margin": margin,
-                    "plot_dir": plot_dir,
-                    "parquet_data_dir": parquet_data_dir,
-                    "initial_capital": initial_capital,
-                    "save_format": save_format,
-                    "csv_data_dir": csv_data_dir,
-                }
-            )
-            st.success("Settings saved successfully!")
+            errors: list[str] = []
+            _, err = _parse_float(commission, "Brokerage Commission", min_val=0.0, min_inclusive=True)
+            if err:
+                errors.append(err)
+            _, err = _parse_float(slippage, "Slippage", min_val=0.0, min_inclusive=True)
+            if err:
+                errors.append(err)
+            _, err = _parse_float(margin, "Margin", min_val=0.0, min_inclusive=False, max_val=1.0, max_inclusive=True)
+            if err:
+                errors.append(err)
+            _, err = _parse_float(initial_capital, "Initial Capital", min_val=0.0, min_inclusive=False)
+            if err:
+                errors.append(err)
+
+            if errors:
+                st.error("Invalid settings:\n" + "\n".join(f"- {e}" for e in errors))
+            else:
+                try:
+                    os.makedirs(plot_dir, exist_ok=True)
+                    os.makedirs(parquet_data_dir, exist_ok=True)
+                    if csv_data_dir:
+                        os.makedirs(csv_data_dir, exist_ok=True)
+                except OSError as exc:
+                    st.error(f"Could not create configured directory: {exc}")
+                else:
+                    settings_repo.save(
+                        {
+                            "brokerage_commission": commission,
+                            "slippage": slippage,
+                            "brokerage_margin": margin,
+                            "plot_dir": plot_dir,
+                            "parquet_data_dir": parquet_data_dir,
+                            "initial_capital": initial_capital,
+                            "save_format": save_format,
+                            "csv_data_dir": csv_data_dir,
+                        }
+                    )
+                    st.success("Settings saved successfully!")

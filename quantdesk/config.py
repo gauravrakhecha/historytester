@@ -33,10 +33,16 @@ load_dotenv(ROOT_DIR / ".env", override=True)
 DB_FILE: str = os.getenv("MODULAR_DB_FILE", str(ROOT_DIR / "quantdesk_data.db"))
 
 # --- DEFAULT DATA / OUTPUT PATHS -------------------------------------------
-# The user's existing downloaded data (used for verification & as a sensible default).
-DEFAULT_DATA_DIR: str = os.getenv(
-    "QUANTDESK_DATA_DIR", r"D:\simpleton\historydownloader\data"
-)
+# Prefer QUANTDESK_DATA_DIR when set; otherwise use the legacy shared data folder
+# only if it exists on this machine, falling back to ROOT_DIR / "data".
+_LEGACY_DATA_DIR: Path = Path(r"D:\simpleton\historydownloader\data")
+_env_data_dir = os.getenv("QUANTDESK_DATA_DIR")
+if _env_data_dir:
+    DEFAULT_DATA_DIR: str = _env_data_dir
+elif _LEGACY_DATA_DIR.is_dir():
+    DEFAULT_DATA_DIR = str(_LEGACY_DATA_DIR)
+else:
+    DEFAULT_DATA_DIR = str(ROOT_DIR / "data")
 STRATEGIES_DIR: Path = ROOT_DIR / "strategies"
 INDICATOR_PRESETS_DIR: Path = ROOT_DIR / "indicator_presets"
 PLOTS_DIR: Path = ROOT_DIR / "plots"
@@ -136,6 +142,11 @@ INDICATOR_PLACEMENT = {
     # v7 normalized / cross-asset-comparable features (all own-scale -> panels)
     "Ratio to SMA": "panel", "Distance from MA (ATR)": "panel", "MA Slope (ATR)": "panel",
     "Z-Score": "panel", "Percentile Rank": "panel", "Return (n-bar)": "panel",
+    # v8.2 visual custom building blocks & safe formula
+    "Series Math": "panel",
+    "Rolling Stat": "overlay",
+    "Bar Shift": "overlay",
+    "Custom Formula": "panel",
 }
 
 # Reference guide-lines drawn inside an indicator's panel (y-values).

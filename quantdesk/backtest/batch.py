@@ -39,13 +39,18 @@ def run_batch(
     margin: float,
     strat_dir_name: str = "Long Only",
     progress_cb: Optional[Callable[[float, str], None]] = None,
+    segment: Optional[str] = None,
+    slippage: float = 0.0,
 ) -> dict:
     """Run the strategy across all files concurrently.
 
     Returns ``{"results": [...], "failed": [...], "table": DataFrame}`` where ``table`` includes
     the trailing AVERAGE row (mirrors the original display).
     """
-    args_list = [(f, code, init_cash, total_commission, margin, []) for f in files]
+    if segment:
+        args_list = [(f, code, init_cash, total_commission, margin, [], segment, slippage) for f in files]
+    else:
+        args_list = [(f, code, init_cash, total_commission, margin, []) for f in files]
     results, failed = [], []
 
     with ProcessPoolExecutor() as executor:
@@ -64,8 +69,9 @@ def run_batch(
     if results:
         table = pd.DataFrame(results)
         # heavy persistence-only fields don't belong in the on-screen table
-        table = table.drop(columns=[c for c in ("Equity Curve JSON", "Dataset Hash")
-                                    if c in table.columns])
+        table = table.drop(
+            columns=[c for c in ("Equity Curve JSON", "Dataset Hash", "Start Date", "End Date") if c in table.columns]
+        )
         table.insert(1, "Strategy Direction", strat_dir_name)
         summary = table.select_dtypes(include=["float", "int"]).mean().round(3).to_frame().T
         summary["File"] = "📊 AVERAGE"
@@ -108,7 +114,13 @@ def extract_trades(
     return all_trades
 
 
-def save_batch_to_db(results: List[dict], strategy_label: str, indicators: list, code: str = "") -> None:
+def save_batch_to_db(
+    results: List[dict],
+    strategy_label: str,
+    indicators: list,
+    code: str = "",
+    segment: Optional[str] = None,
+) -> None:
     """Persist each batch result row to the ``backtests`` table, incl. buried metrics (#5),
     data-quality (#3) and repro hashes (#9). One strategy/code hash applies to the whole batch."""
     from quantdesk.core import db, reproducibility as repro
@@ -117,10 +129,12 @@ def save_batch_to_db(results: List[dict], strategy_label: str, indicators: list,
     config_hash = repro.hash_config({"indicators": indicators})
     strategy_hash = repro.hash_text(code) if code else None
     code_hash = repro.code_version()
+    seg_label = segment or "Batch (flat commission)"
     for res in results:
         db.insert_backtest({
             "strategy_name": strategy_label, "symbol": res["File"], "timeframe": "Batch",
-            "start_date": "", "end_date": "", "parameters": "{}",
+            "start_date": res.get("Start Date", ""), "end_date": res.get("End Date", ""),
+            "parameters": "{}",
             "return_pct": res["Return [%]"], "max_drawdown_pct": res["Max. Drawdown [%]"],
             "win_rate_pct": res["Win Rate [%]"], "num_trades": res["Total Trades"],
             "sharpe_ratio": res["Sharpe Ratio"], "plot_file": "none",
@@ -129,8 +143,9 @@ def save_batch_to_db(results: List[dict], strategy_label: str, indicators: list,
             "sqn": res.get("SQN"), "buy_hold_return_pct": res.get("Buy & Hold Return [%]"),
             "quality_score": res.get("Data Quality"),
             # batch rows now carry the same repro/leaderboard fields as single runs:
-            "segment": "Batch (flat commission)",
+            "segment": seg_label,
             "net_return_pct": res.get("Net Return [%]", res.get("Return [%]")),
+            "total_charges": res.get("Total Charges"),
             "dataset_hash": res.get("Dataset Hash"),
             "equity_curve_json": res.get("Equity Curve JSON"),
             "config_hash": config_hash, "strategy_hash": strategy_hash, "code_hash": code_hash,

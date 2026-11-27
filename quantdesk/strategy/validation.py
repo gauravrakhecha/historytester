@@ -20,17 +20,30 @@ source string. Two independent layers close it:
 from __future__ import annotations
 
 import ast
+import math
+import re
 from numbers import Real
 from typing import Any
 
-from quantdesk.strategy.indicators import INDICATOR_PARAM_SPECS, INDICATOR_TYPES
+from quantdesk.strategy.indicators import (
+    INDICATOR_PARAM_SPECS,
+    INDICATOR_TYPES,
+    FormulaValidationError,
+    assert_safe_formula,
+)
 from quantdesk.strategy.models import (
+    OHLCV,
     OPERATORS,
     RM_MODES,
+    RULE_TIMINGS,
     STRAT_DIRECTIONS,
     ZONE_ACTIONS,
+    output_columns_for,
+    safe_name,
     selectable_columns,
 )
+
+_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 class PresetValidationError(ValueError):
@@ -90,17 +103,21 @@ def assert_safe_ast(source: str) -> None:
 
 # ---------------------------------------------------------------- preset validation
 def _num(x: Any, field: str) -> float:
-    """Assert ``x`` is a real number (bools excluded; numeric strings tolerated). Returns float."""
+    """Assert ``x`` is a finite real number (bools excluded; numeric strings tolerated). Returns float."""
     if isinstance(x, bool):
         raise PresetValidationError(f"{field} must be a number, got {x!r}")
     if isinstance(x, Real):
-        return float(x)
-    if isinstance(x, str):
+        v = float(x)
+    elif isinstance(x, str):
         try:
-            return float(x)
+            v = float(x)
         except ValueError:
             raise PresetValidationError(f"{field} must be a number, got {x!r}") from None
-    raise PresetValidationError(f"{field} must be a number, got {x!r}")
+    else:
+        raise PresetValidationError(f"{field} must be a number, got {x!r}")
+    if not math.isfinite(v):
+        raise PresetValidationError(f"{field} must be finite, got {x!r}")
+    return v
 
 
 def _require_list_of_dicts(x: Any, field: str) -> list:
@@ -124,22 +141,74 @@ def validate_preset(data: Any) -> dict:
         raise PresetValidationError("Preset must be a JSON object.")
 
     inds = _require_list_of_dicts(data.get("indicators", []) or [], "indicators")
+    defined = set(OHLCV)
+    seen_names: set[str] = set()
+    seen_safe_names: set[str] = set()
     for i, ind in enumerate(inds):
         itype = ind.get("type")
         if itype not in INDICATOR_TYPES:
             raise PresetValidationError(f"indicators[{i}].type {itype!r} is not a known indicator.")
-        if not isinstance(ind.get("name"), str) or not ind.get("name"):
+        name = ind.get("name")
+        if not isinstance(name, str) or not name:
             raise PresetValidationError(f"indicators[{i}].name must be a non-empty string.")
-        if not isinstance(ind.get("source", ""), str):
-            raise PresetValidationError(f"indicators[{i}].source must be a string.")
+        sname = safe_name(name)
+        if name in seen_names or sname in seen_safe_names:
+            raise PresetValidationError(f"indicators[{i}].name {name!r} duplicates an existing indicator.")
+        source = ind.get("source", "Close")
+        if not isinstance(source, str) or source not in defined:
+            raise PresetValidationError(f"indicators[{i}].source {source!r} is not a defined column.")
+        if "placement" in ind and ind["placement"] is not None:
+            if ind["placement"] not in ("overlay", "panel"):
+                raise PresetValidationError(
+                    f"indicators[{i}].placement must be 'overlay' or 'panel', got {ind['placement']!r}."
+                )
         params = ind.get("params", {}) or {}
         if not isinstance(params, dict):
             raise PresetValidationError(f"indicators[{i}].params must be an object.")
-        allowed_keys = {spec[0] for spec in INDICATOR_PARAM_SPECS.get(itype, [])}
+        spec_map = {spec[0]: spec for spec in INDICATOR_PARAM_SPECS.get(itype, [])}
         for k, v in params.items():
-            if allowed_keys and k not in allowed_keys:
+            if k not in spec_map:
                 raise PresetValidationError(f"indicators[{i}].params has unknown key {k!r} for {itype}.")
-            _num(v, f"indicators[{i}].params.{k}")
+            _, kind, _, extra = spec_map[k]
+            if kind == "select":
+                choices = extra.get("choices", [])
+                if not isinstance(v, str) or v not in choices:
+                    raise PresetValidationError(
+                        f"indicators[{i}].params.{k} must be one of {choices}, got {v!r}."
+                    )
+            else:
+                num_v = _num(v, f"indicators[{i}].params.{k}")
+                if itype in ("Series Math", "Rolling Stat", "Bar Shift"):
+                    if "min" in extra and num_v < float(extra["min"]):
+                        raise PresetValidationError(
+                            f"indicators[{i}].params.{k} must be >= {extra['min']}, got {v!r}."
+                        )
+                    if "max" in extra and num_v > float(extra["max"]):
+                        raise PresetValidationError(
+                            f"indicators[{i}].params.{k} must be <= {extra['max']}, got {v!r}."
+                        )
+        if itype == "Series Math":
+            use_num = int(params.get("use_num", 0) or 0)
+            rhs = ind.get("rhs", "Close")
+            if use_num == 0 or ("rhs" in ind and rhs not in (None, "")):
+                if not isinstance(rhs, str) or rhs not in defined:
+                    raise PresetValidationError(f"indicators[{i}].rhs {rhs!r} is not a defined column.")
+        elif itype == "Custom Formula":
+            formula = ind.get("formula")
+            if not isinstance(formula, str) or not formula.strip():
+                raise PresetValidationError(f"indicators[{i}].formula must be a non-empty string.")
+            allowed_formula_vars = {c for c in defined if c.isidentifier()}
+            for c in defined:
+                sc = safe_name(c)
+                if sc and sc.isidentifier():
+                    allowed_formula_vars.add(sc)
+            try:
+                assert_safe_formula(formula, allowed_vars=allowed_formula_vars)
+            except FormulaValidationError as e:
+                raise PresetValidationError(f"indicators[{i}].formula is unsafe or invalid: {e}") from e
+        seen_names.add(name)
+        seen_safe_names.add(sname)
+        defined.update(output_columns_for(ind))
 
     legal = set(selectable_columns(inds))  # OHLCV + every indicator output column
 
@@ -156,6 +225,20 @@ def validate_preset(data: Any) -> dict:
                 _num(r.get("var2"), f"{rules_field}[{j}].var2")
             elif r.get("var2") not in legal:
                 raise PresetValidationError(f"{rules_field}[{j}].var2 {r.get('var2')!r} is not a known column.")
+            if "group" in r and r["group"] is not None:
+                g = r["group"]
+                if isinstance(g, bool) or not isinstance(g, int) or g < 0:
+                    raise PresetValidationError(f"{rules_field}[{j}].group must be a non-negative integer.")
+            if "negate" in r and r["negate"] is not None and not isinstance(r["negate"], bool):
+                raise PresetValidationError(f"{rules_field}[{j}].negate must be a bool.")
+            if "timing" in r and r["timing"] is not None and r["timing"] not in RULE_TIMINGS:
+                raise PresetValidationError(
+                    f"{rules_field}[{j}].timing {r['timing']!r} must be one of {RULE_TIMINGS}."
+                )
+            if "timing_bars" in r and r["timing_bars"] is not None:
+                tb = r["timing_bars"]
+                if isinstance(tb, bool) or not isinstance(tb, int) or tb < 1:
+                    raise PresetValidationError(f"{rules_field}[{j}].timing_bars must be an integer >= 1.")
 
     _check_rules("buy_rules")
     _check_rules("sell_rules")
@@ -181,7 +264,26 @@ def validate_preset(data: Any) -> dict:
               "atr_period", "atr_stop_mult", "max_bars_in_trade",
               "breakeven_trigger_pct", "partial_exit_pct", "partial_trigger_pct"):
         if f in rm:
-            _num(rm.get(f), f"risk_management.{f}")
+            val = _num(rm.get(f), f"risk_management.{f}")
+            if val < 0:
+                raise PresetValidationError(f"risk_management.{f} must be >= 0, got {val!r}")
+    if "atr_period" in rm and _num(rm.get("atr_period"), "risk_management.atr_period") < 1:
+        raise PresetValidationError(f"risk_management.atr_period must be >= 1, got {rm.get('atr_period')!r}")
+    for bf in ("htf_bias", "intraday_square_off", "entry_time_filter"):
+        if bf in rm and not isinstance(rm.get(bf), bool):
+            raise PresetValidationError(f"risk_management.{bf} must be a bool, got {rm.get(bf)!r}")
+    for tf in ("entry_start_time", "entry_end_time"):
+        if tf in rm and rm.get(tf) is not None:
+            tval = rm.get(tf)
+            if not isinstance(tval, str) or not _HHMM_RE.match(tval):
+                raise PresetValidationError(
+                    f"risk_management.{tf} must be a 24h 'HH:MM' time string, got {tval!r}"
+                )
+    for hf in ("htf_minutes", "htf_ema_period"):
+        if hf in rm:
+            hval = _num(rm.get(hf), f"risk_management.{hf}")
+            if hval < 1:
+                raise PresetValidationError(f"risk_management.{hf} must be >= 1, got {hval!r}")
     if rm.get("strat_dir", STRAT_DIRECTIONS[0]) not in STRAT_DIRECTIONS:
         raise PresetValidationError(f"risk_management.strat_dir {rm.get('strat_dir')!r} is invalid.")
 

@@ -14,7 +14,9 @@ Also exposed:
 """
 from __future__ import annotations
 
-from typing import Dict, List
+import ast
+import math
+from typing import Any, Dict, Iterable, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -39,6 +41,8 @@ INDICATOR_TYPES: List[str] = [
     # v7 normalized / cross-asset-comparable features
     "Ratio to SMA", "Distance from MA (ATR)", "MA Slope (ATR)",
     "Z-Score", "Percentile Rank", "Return (n-bar)",
+    # v8.2 visual custom building blocks & safe formula
+    "Series Math", "Rolling Stat", "Bar Shift", "Custom Formula",
 ]
 
 # Parameter widgets per type (mirrors upstox_app.py:1666-1704).
@@ -105,6 +109,31 @@ INDICATOR_PARAM_SPECS: Dict[str, list] = {
     "Z-Score": [("period", "int", 50, {"min": 2, "help": "rolling window for mean/std"})],
     "Percentile Rank": [("period", "int", 50, {"min": 2, "help": "rolling window; output 0..1"})],
     "Return (n-bar)": [("period", "int", 5, {"min": 1, "help": "x / x[t-period] - 1"})],
+    # v8.2 visual custom building blocks & safe formula
+    "Series Math": [
+        ("op", "select", "add", {
+            "choices": ["add", "sub", "mul", "div", "pct_diff"],
+            "help": "add (A+B), sub (A-B), mul (A*B), div (A/B), pct_diff ((A-B)/B*100)",
+        }),
+        ("use_num", "int", 0, {
+            "min": 0, "max": 1,
+            "help": "0 = combine with Series B (rhs), 1 = combine with constant num_val",
+        }),
+        ("num_val", "float", 0.0, {
+            "help": "Numeric constant B when use_num=1",
+        }),
+    ],
+    "Rolling Stat": [
+        ("stat", "select", "max", {
+            "choices": ["max", "min", "mean", "sum", "std"],
+            "help": "Rolling statistic over the last N bars",
+        }),
+        ("period", "int", 20, {"min": 1, "help": "Rolling window length (bars)"}),
+    ],
+    "Bar Shift": [
+        ("shift", "int", 1, {"min": 0, "help": "Bars to shift backward (e.g. 1 = previous bar)"}),
+    ],
+    "Custom Formula": [],
 }
 
 # Cross-asset-comparable indicator types (v7 Phase B): their value carries the SAME meaning
@@ -148,7 +177,9 @@ def emit_indicator(ind: dict, src_map: Dict[str, str]) -> str:
     """
     raw_name = ind["name"]
     name = safe_name(raw_name)
-    src = src_map.get(ind["source"], f"self.{ind['source']}")
+    prior_src_map = dict(src_map)
+    src_col = ind.get("source", "Close") or "Close"
+    src = prior_src_map.get(src_col, f"self.{src_col}")
     src_map[raw_name] = f"self.{name}"
     t = ind["type"]
     code = ""
@@ -326,6 +357,38 @@ def emit_indicator(ind: dict, src_map: Dict[str, str]) -> str:
         code += f"        self.{name} = self.I(pctile_rank_vec, {src}, self.{name}_period)\n"
     elif t == "Return (n-bar)":
         code += f"        self.{name} = self.I(ret_n_vec, {src}, self.{name}_period)\n"
+    # --- v8.2 visual custom building blocks & safe formula ---
+    elif t == "Series Math":
+        params = ind.get("params", {}) or {}
+        op_val = str(params.get("op", "add"))
+        use_num = int(params.get("use_num", 0) or 0)
+        if use_num:
+            b_expr = f"self.{name}_num_val" if "num_val" in params else repr(float(params.get("num_val", 0.0)))
+        else:
+            rhs_col = ind.get("rhs", "Close") or "Close"
+            b_expr = prior_src_map.get(rhs_col, f"self.{rhs_col}")
+        code += f"        self.{name} = self.I(series_math_vec, {src}, {b_expr}, {op_val!r})\n"
+    elif t == "Rolling Stat":
+        params = ind.get("params", {}) or {}
+        stat_val = str(params.get("stat", "max"))
+        period_expr = f"self.{name}_period" if "period" in params else repr(int(params.get("period", 20)))
+        code += f"        self.{name} = self.I(rolling_stat_vec, {src}, {period_expr}, {stat_val!r})\n"
+    elif t == "Bar Shift":
+        params = ind.get("params", {}) or {}
+        shift_expr = f"self.{name}_shift" if "shift" in params else repr(int(params.get("shift", 1)))
+        code += f"        self.{name} = self.I(shift_vec, {src}, {shift_expr})\n"
+    elif t == "Custom Formula":
+        formula = str(ind.get("formula", "Close") or "Close").strip()
+        env_map: Dict[str, str] = {}
+        for col_name, attr_expr in prior_src_map.items():
+            if col_name.isidentifier():
+                env_map[col_name] = attr_expr
+            sname = safe_name(col_name)
+            if sname and sname.isidentifier() and sname not in env_map:
+                env_map[sname] = attr_expr
+        assert_safe_formula(formula, allowed_vars=set(env_map))
+        env_items = ", ".join(f"{k!r}: {v}" for k, v in env_map.items())
+        code += f"        self.{name} = self.I(compute_custom_formula, {formula!r}, {{{env_items}}}, name={name!r})\n"
     return code
 
 
@@ -434,3 +497,276 @@ def ret_n_vec(series, n):
     """n-bar return: x / x[t-n] - 1 (scale-free)."""
     s = pd.Series(series, dtype="float64")
     return (s / s.shift(int(n)) - 1.0).values
+
+
+# --- v8.2 visual custom building blocks & safe formula evaluator ----------------------------
+_SERIES_MATH_OPS = frozenset({"add", "sub", "mul", "div", "pct_diff"})
+_ROLLING_STATS = frozenset({"max", "min", "mean", "sum", "std"})
+
+SAFE_FORMULA_FUNCS = frozenset({
+    "sma", "ema", "wma", "rsi", "atr",
+    "rolling_max", "rolling_min", "shift",
+    "abs", "min", "max", "sqrt", "log",
+})
+
+_ALLOWED_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow)
+_ALLOWED_UNARYOPS = (ast.UAdd, ast.USub)
+_ALLOWED_CMPOPS = (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE)
+_MAX_FORMULA_LEN = 2000
+_MAX_FORMULA_DEPTH = 50
+
+
+class FormulaValidationError(ValueError):
+    """Raised when a Custom Formula expression fails AST whitelist validation."""
+
+
+def series_math_vec(a, b_or_num, op_code: str = "add") -> np.ndarray:
+    """Combine series ``a`` with series or scalar ``b_or_num`` via ``op_code``."""
+    if op_code not in _SERIES_MATH_OPS:
+        raise ValueError(f"Unsupported Series Math op {op_code!r}; expected one of {sorted(_SERIES_MATH_OPS)}")
+    a_arr = np.asarray(a, dtype="float64")
+    b_arr = np.asarray(b_or_num, dtype="float64")
+    with np.errstate(divide="ignore", invalid="ignore"):
+        if op_code == "add":
+            return a_arr + b_arr
+        if op_code == "sub":
+            return a_arr - b_arr
+        if op_code == "mul":
+            return a_arr * b_arr
+        if op_code == "div":
+            return np.where(b_arr == 0, np.nan, a_arr / b_arr)
+        return np.where(b_arr == 0, np.nan, (a_arr - b_arr) / b_arr * 100.0)
+
+
+def rolling_stat_vec(series, period: int, stat: str = "max") -> np.ndarray:
+    """Compute a rolling statistic (max/min/mean/sum/std) over ``period`` bars."""
+    n = int(period)
+    if n < 1:
+        raise ValueError(f"Rolling Stat period must be >= 1, got {period!r}")
+    if stat not in _ROLLING_STATS:
+        raise ValueError(f"Unsupported Rolling Stat {stat!r}; expected one of {sorted(_ROLLING_STATS)}")
+    r = pd.Series(series, dtype="float64").rolling(n)
+    if stat == "std":
+        return r.std(ddof=0).values
+    return getattr(r, stat)().values
+
+
+def shift_vec(series, shift: int = 1) -> np.ndarray:
+    """Shift ``series`` backward by ``shift`` bars (no negative lookahead shifts)."""
+    k = int(shift)
+    if k < 0:
+        raise ValueError(f"Bar Shift must be >= 0 (no lookahead), got {shift!r}")
+    return pd.Series(series, dtype="float64").shift(k).values
+
+
+def assert_safe_formula(
+    expr: str,
+    allowed_vars: Optional[Iterable[str]] = None,
+) -> ast.Expression:
+    """Validate ``expr`` against an expression-only AST whitelist; return parsed AST."""
+    if not isinstance(expr, str) or not expr.strip():
+        raise FormulaValidationError("Custom Formula must be a non-empty expression string.")
+    if len(expr) > _MAX_FORMULA_LEN:
+        raise FormulaValidationError(f"Custom Formula exceeds max length of {_MAX_FORMULA_LEN} characters.")
+    try:
+        tree = ast.parse(expr.strip(), mode="eval")
+    except SyntaxError as e:
+        raise FormulaValidationError(f"Invalid Custom Formula syntax: {e}") from e
+
+    allowed_set = set(allowed_vars) if allowed_vars is not None else None
+    call_func_nodes: set[int] = set()
+
+    def _walk(node: ast.AST, depth: int) -> None:
+        if depth > _MAX_FORMULA_DEPTH:
+            raise FormulaValidationError("Custom Formula nesting is too deep.")
+        if isinstance(node, ast.Expression):
+            _walk(node.body, depth + 1)
+        elif isinstance(node, ast.BinOp):
+            if not isinstance(node.op, _ALLOWED_BINOPS):
+                raise FormulaValidationError(f"Disallowed binary operator: {type(node.op).__name__}")
+            _walk(node.left, depth + 1)
+            _walk(node.right, depth + 1)
+        elif isinstance(node, ast.UnaryOp):
+            if not isinstance(node.op, _ALLOWED_UNARYOPS):
+                raise FormulaValidationError(f"Disallowed unary operator: {type(node.op).__name__}")
+            _walk(node.operand, depth + 1)
+        elif isinstance(node, ast.Compare):
+            for op in node.ops:
+                if not isinstance(op, _ALLOWED_CMPOPS):
+                    raise FormulaValidationError(f"Disallowed comparison operator: {type(op).__name__}")
+            _walk(node.left, depth + 1)
+            for comp in node.comparators:
+                _walk(comp, depth + 1)
+        elif isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name) or node.func.id not in SAFE_FORMULA_FUNCS:
+                fn = node.func.id if isinstance(node.func, ast.Name) else type(node.func).__name__
+                raise FormulaValidationError(f"Disallowed function call: {fn}")
+            if node.keywords:
+                raise FormulaValidationError("Keyword arguments are not allowed in Custom Formula calls.")
+            call_func_nodes.add(id(node.func))
+            for arg in node.args:
+                if isinstance(arg, ast.Starred):
+                    raise FormulaValidationError("Starred arguments are not allowed in Custom Formula calls.")
+                _walk(arg, depth + 1)
+        elif isinstance(node, ast.Name):
+            if not isinstance(node.ctx, ast.Load):
+                raise FormulaValidationError("Only variable reads are allowed in Custom Formula.")
+            if node.id.startswith("_"):
+                raise FormulaValidationError(f"Disallowed identifier: {node.id}")
+            if id(node) not in call_func_nodes:
+                if allowed_set is not None and node.id not in allowed_set:
+                    raise FormulaValidationError(f"Unknown variable {node.id!r} in Custom Formula.")
+                if allowed_set is None and node.id in SAFE_FORMULA_FUNCS:
+                    raise FormulaValidationError(f"Function {node.id!r} must be called with parentheses.")
+        elif isinstance(node, ast.Constant):
+            if isinstance(node.value, bool) or not isinstance(node.value, (int, float)) or not math.isfinite(node.value):
+                raise FormulaValidationError(f"Only finite numeric constants are allowed, got {node.value!r}")
+        else:
+            raise FormulaValidationError(f"Disallowed expression construct: {type(node).__name__}")
+
+    _walk(tree, 0)
+    return tree
+
+
+def _as_int_period(val: Any, min_val: int = 1, name: str = "period") -> int:
+    if isinstance(val, np.ndarray):
+        if val.ndim > 0:
+            raise FormulaValidationError(f"{name} must be a scalar integer, not a series.")
+        val = val.item()
+    n = int(val)
+    if n < min_val:
+        raise ValueError(f"{name} must be >= {min_val}, got {val!r}")
+    return n
+
+
+def _formula_call(fn_name: str, args: List[Any], env_arrs: Dict[str, np.ndarray]) -> Any:
+    if fn_name in ("sma", "ema", "wma"):
+        if len(args) != 2:
+            raise FormulaValidationError(f"{fn_name}(series, period) expects 2 arguments, got {len(args)}")
+        n = _as_int_period(args[1], 1, "period")
+        s = pd.Series(args[0], dtype="float64")
+        fn = {"sma": ta.trend.sma_indicator, "ema": ta.trend.ema_indicator, "wma": ta.trend.wma_indicator}[fn_name]
+        return fn(s, n).values
+    if fn_name == "rsi":
+        if len(args) not in (1, 2):
+            raise FormulaValidationError(f"rsi(series, period=14) expects 1 or 2 arguments, got {len(args)}")
+        n = _as_int_period(args[1], 1, "period") if len(args) == 2 else 14
+        return ta.momentum.rsi(pd.Series(args[0], dtype="float64"), n).values
+    if fn_name == "atr":
+        if len(args) == 0:
+            n = 14
+            h, l_, c = env_arrs.get("High"), env_arrs.get("Low"), env_arrs.get("Close")
+        elif len(args) == 1:
+            n = _as_int_period(args[0], 1, "period")
+            h, l_, c = env_arrs.get("High"), env_arrs.get("Low"), env_arrs.get("Close")
+        elif len(args) == 4:
+            h, l_, c = args[0], args[1], args[2]
+            n = _as_int_period(args[3], 1, "period")
+        else:
+            raise FormulaValidationError("atr expects atr(period) or atr(High, Low, Close, period)")
+        if h is None or l_ is None or c is None:
+            raise FormulaValidationError("atr() requires High, Low, Close series in environment")
+        return _atr(h, l_, c, n).values
+    if fn_name in ("rolling_max", "rolling_min"):
+        if len(args) != 2:
+            raise FormulaValidationError(f"{fn_name}(series, period) expects 2 arguments, got {len(args)}")
+        stat = "max" if fn_name == "rolling_max" else "min"
+        return rolling_stat_vec(args[0], _as_int_period(args[1], 1, "period"), stat)
+    if fn_name == "shift":
+        if len(args) not in (1, 2):
+            raise FormulaValidationError(f"shift(series, bars=1) expects 1 or 2 arguments, got {len(args)}")
+        k = _as_int_period(args[1], 0, "shift") if len(args) == 2 else 1
+        return shift_vec(args[0], k)
+    if fn_name == "abs":
+        if len(args) != 1:
+            raise FormulaValidationError(f"abs(x) expects 1 argument, got {len(args)}")
+        return np.abs(np.asarray(args[0], dtype="float64"))
+    if fn_name in ("min", "max"):
+        if len(args) < 1:
+            raise FormulaValidationError(f"{fn_name} expects at least 1 argument")
+        if len(args) == 1:
+            arr = np.asarray(args[0], dtype="float64")
+            return float(np.nanmin(arr)) if fn_name == "min" else float(np.nanmax(arr))
+        acc = np.asarray(args[0], dtype="float64")
+        ufunc = np.minimum if fn_name == "min" else np.maximum
+        for extra in args[1:]:
+            acc = ufunc(acc, np.asarray(extra, dtype="float64"))
+        return acc
+    if fn_name == "sqrt":
+        if len(args) != 1:
+            raise FormulaValidationError(f"sqrt(x) expects 1 argument, got {len(args)}")
+        arr = np.asarray(args[0], dtype="float64")
+        with np.errstate(invalid="ignore"):
+            return np.where(arr < 0, np.nan, np.sqrt(arr))
+    if fn_name == "log":
+        if len(args) != 1:
+            raise FormulaValidationError(f"log(x) expects 1 argument, got {len(args)}")
+        arr = np.asarray(args[0], dtype="float64")
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return np.where(arr <= 0, np.nan, np.log(arr))
+    raise FormulaValidationError(f"Unsupported function: {fn_name}")
+
+
+def compute_custom_formula(expr: str, env_dict: Dict[str, Any]) -> np.ndarray:
+    """Safely evaluate a validated single-line AST formula over ``env_dict`` series."""
+    tree = assert_safe_formula(expr, allowed_vars=set(env_dict))
+    env_arrs: Dict[str, np.ndarray] = {
+        k: np.asarray(v, dtype="float64") for k, v in env_dict.items()
+    }
+    ref_len = next((arr.shape[-1] for arr in env_arrs.values() if arr.ndim >= 1), 0)
+
+    def _eval(node: ast.AST) -> Any:
+        if isinstance(node, ast.Constant):
+            return float(node.value)
+        if isinstance(node, ast.Name):
+            return env_arrs[node.id]
+        if isinstance(node, ast.UnaryOp):
+            val = _eval(node.operand)
+            return val if isinstance(node.op, ast.UAdd) else -val
+        if isinstance(node, ast.BinOp):
+            lhs = np.asarray(_eval(node.left), dtype="float64")
+            rhs = np.asarray(_eval(node.right), dtype="float64")
+            with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+                if isinstance(node.op, ast.Add):
+                    return lhs + rhs
+                if isinstance(node.op, ast.Sub):
+                    return lhs - rhs
+                if isinstance(node.op, ast.Mult):
+                    return lhs * rhs
+                if isinstance(node.op, ast.Div):
+                    return np.where(rhs == 0, np.nan, lhs / rhs)
+                if isinstance(node.op, ast.FloorDiv):
+                    return np.where(rhs == 0, np.nan, np.floor_divide(lhs, rhs))
+                if isinstance(node.op, ast.Mod):
+                    return np.where(rhs == 0, np.nan, np.remainder(lhs, rhs))
+                if isinstance(node.op, ast.Pow):
+                    return np.power(lhs, rhs)
+        if isinstance(node, ast.Compare):
+            cur = _eval(node.left)
+            acc = None
+            for op, comp in zip(node.ops, node.comparators):
+                nxt = _eval(comp)
+                if isinstance(op, ast.Eq):
+                    res = cur == nxt
+                elif isinstance(op, ast.NotEq):
+                    res = cur != nxt
+                elif isinstance(op, ast.Lt):
+                    res = cur < nxt
+                elif isinstance(op, ast.LtE):
+                    res = cur <= nxt
+                elif isinstance(op, ast.Gt):
+                    res = cur > nxt
+                else:
+                    res = cur >= nxt
+                acc = res if acc is None else (acc & res)
+                cur = nxt
+            return np.asarray(acc, dtype="float64")
+        if isinstance(node, ast.Call):
+            args = [_eval(a) for a in node.args]
+            return _formula_call(node.func.id, args, env_arrs)
+        raise FormulaValidationError(f"Disallowed AST node: {type(node).__name__}")
+
+    out = np.asarray(_eval(tree.body), dtype="float64")
+    if out.ndim == 0:
+        return np.full(ref_len, float(out), dtype="float64")
+    return out

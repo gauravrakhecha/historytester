@@ -20,8 +20,14 @@ from quantdesk.strategy.compiler import compile_strategy
 
 
 def run_worker(args):
-    """args = (file_path, code, init_cash, comm, marg, feature_vars). Returns a result dict."""
-    file_path, code, init_cash, comm, marg, feature_vars = args
+    """args = (file_path, code, init_cash, comm, marg, feature_vars[, segment[, slippage]]).
+
+    Returns a result dict. Preserves 6-tuple compatibility while supporting optional
+    segment/slippage charges in-engine.
+    """
+    file_path, code, init_cash, comm, marg, feature_vars, *rest = args
+    segment = rest[0] if len(rest) > 0 else None
+    slippage = float(rest[1] or 0.0) if len(rest) > 1 else 0.0
     from backtesting import Backtest  # local import keeps spawn import set minimal
 
     try:
@@ -33,19 +39,31 @@ def run_worker(args):
         if df.empty or len(df) < 50:
             return {"File": os.path.basename(file_path), "Error": "Too few rows"}
 
-        # Data-quality gate (#3): block obviously-broken data, annotate the rest.
-        q = validate_quality(df)
-        if q["quality_score"] < QUALITY_BLOCK_THRESHOLD:
-            return {"File": os.path.basename(file_path), "Error": f"Data quality {q['quality_score']} below block threshold"}
-
         if "Timestamp" in df.columns:
             from quantdesk.data.loader import normalize_timestamps
             df["Timestamp"] = normalize_timestamps(df["Timestamp"])  # one tz convention
             df.set_index("Timestamp", inplace=True)
+        elif df.index.name == "Timestamp" or isinstance(df.index, pd.DatetimeIndex):
+            from quantdesk.data.loader import normalize_timestamps
+            df.index = normalize_timestamps(pd.Series(df.index))
+            df.index.name = "Timestamp"
+
+        # Data-quality gate (#3): block obviously-broken data, annotate the rest.
+        q = validate_quality(df.reset_index() if df.index.name == "Timestamp" else df)
+        if q["quality_score"] < QUALITY_BLOCK_THRESHOLD:
+            return {"File": os.path.basename(file_path), "Error": f"Data quality {q['quality_score']} below block threshold"}
 
         strategy_class = compile_strategy(code)
 
-        bt = Backtest(df, strategy_class, cash=init_cash, commission=comm, margin=marg, finalize_trades=True)
+        if segment:
+            from quantdesk.costs.india import charges_for_trades, make_fee_model
+            bt = Backtest(
+                df, strategy_class, cash=init_cash,
+                commission=make_fee_model(segment),
+                spread=slippage, margin=marg, finalize_trades=True,
+            )
+        else:
+            bt = Backtest(df, strategy_class, cash=init_cash, commission=comm, margin=marg, finalize_trades=True)
         stats = bt.run()
         strat_instance = stats.get("_strategy", None)
 
@@ -55,8 +73,16 @@ def run_worker(args):
             if duration_days > 0:
                 ann_ret = ((stats["Return [%]"] / 100 + 1) ** (365.25 / duration_days) - 1) * 100
 
+        try:
+            start_date = str(df.index.min().date())
+            end_date = str(df.index.max().date())
+        except Exception:
+            start_date, end_date = "", ""
+
         res = {
             "File": os.path.basename(file_path),
+            "Start Date": start_date,
+            "End Date": end_date,
             "Initial Capital [₹]": init_cash,
             "Return [%]": safe_stat(stats, "Return [%]"),
             "Return (Ann.) [%]": round(ann_ret, 3),
@@ -76,18 +102,24 @@ def run_worker(args):
             "Rights Premium Earned [₹]": getattr(strat_instance, "rights_premium_earned", 0.0) if strat_instance else 0.0,
             "Equity Final [₹]": safe_stat(stats, "Equity Final [$]"),
         }
+        if segment:
+            res["Total Charges"] = charges_for_trades(stats.get("_trades"), segment)["total"]
+
         # persistence-only fields so batch rows reach the leaderboard + are reproducible
-        # (dropped from the on-screen table by run_batch). Commission is applied in-sim,
-        # so Return [%] IS net of the (flat) batch commission.
+        # (dropped from the on-screen table by run_batch). Commission/fee-model is applied
+        # in-sim, so Return [%] IS net of applied charges.
         try:
             import json as _json
             from quantdesk.backtest.metrics import equity_curve_daily
             from quantdesk.core import reproducibility as repro
             res["Net Return [%]"] = res["Return [%]"]
-            res["Dataset Hash"] = repro.hash_file(file_path)
+            try:
+                res["Dataset Hash"] = repro.hash_dataframe(df)
+            except Exception:
+                res["Dataset Hash"] = repro.hash_file(file_path)
             eq = equity_curve_daily(stats)
             res["Equity Curve JSON"] = _json.dumps(
-                {str(pd.Timestamp(k).date()): round(float(v), 2) for k, v in eq.items()})
+                [[str(pd.Timestamp(k).date()), round(float(v), 2)] for k, v in eq.items()])
         except Exception:  # pragma: no cover - persistence extras never fail the run
             res.setdefault("Net Return [%]", res.get("Return [%]"))
             res.setdefault("Dataset Hash", None)
