@@ -1,27 +1,49 @@
 @echo off
+setlocal
 cd /d "%~dp0"
 echo ===================================================
-echo   Quant Engine (Modular) - One-Click Installer
+echo   QuantDesk v9.0 - One-Click Installer
 echo ===================================================
 echo.
 
 uv --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo [INFO] 'uv' not found. Installing via pip...
-    python -m pip install uv
+    python -m pip install --upgrade uv
     if %errorlevel% neq 0 (
-        echo [ERROR] Failed to install 'uv'. Ensure Python is on PATH.
+        echo [ERROR] Failed to install 'uv'. Ensure Python 3.11+ is on PATH.
         pause
-        exit /b
+        exit /b 1
     )
 )
 
-echo [INFO] Creating isolated Python 3.12 environment (.venv)...
+echo [INFO] Creating isolated QuantDesk Python 3.12 environment ^(.venv^)...
 uv venv .venv --python 3.12
+if %errorlevel% neq 0 (
+    echo [ERROR] Failed to create .venv.
+    pause
+    exit /b 1
+)
 
-echo [INFO] Installing dependencies...
-uv pip install -r requirements.txt
+echo [INFO] Installing QuantDesk dependencies into .venv...
+uv pip install --python .venv\Scripts\python.exe -r requirements.txt
+if %errorlevel% neq 0 (
+    echo [ERROR] Package installation failed.
+    pause
+    exit /b 1
+)
+
+echo [INFO] Running quick compile check...
+.venv\Scripts\python.exe -m compileall -q quantdesk app_main.py
+if %errorlevel% neq 0 (
+    echo [ERROR] Compile check failed.
+    pause
+    exit /b 1
+)
 
 echo.
-echo [SUCCESS] Installation complete! Launch with run.bat
+echo [SUCCESS] QuantDesk v9.0 installed!
+echo   - Launch QuantDesk standalone:      run.bat
+echo   - Optional OpenAlgo Sidecar setup: install_openalgo.bat
+echo   - Launch QuantDesk + OpenAlgo:     run_with_openalgo.bat
 pause

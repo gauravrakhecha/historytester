@@ -1,12 +1,11 @@
 @echo off
+setlocal
 cd /d "%~dp0"
 echo ===================================================
-echo   Unified Market Data Downloader ^& Quant Engine
-echo   (Modular Edition)
+echo   QuantDesk v9.0 - Market Data & Quant Workstation
 echo ===================================================
 echo.
 
-REM Prefer this folder's own venv, else fall back to the parent app's .venv
 if exist ".venv\Scripts\python.exe" (
     set "PYEXE=.venv\Scripts\python.exe"
 ) else if exist "..\.venv\Scripts\python.exe" (
@@ -14,8 +13,9 @@ if exist ".venv\Scripts\python.exe" (
 ) else (
     echo [ERROR] No virtual environment found. Run install.bat first.
     pause
-    exit /b
+    exit /b 1
 )
 
-echo [INFO] Launching modular app via %PYEXE% ...
-"%PYEXE%" -m streamlit run app_main.py
+set "PYTHONIOENCODING=utf-8"
+echo [INFO] Launching QuantDesk at http://localhost:8501 via %PYEXE% ...
+"%PYEXE%" -m streamlit run app_main.py %*

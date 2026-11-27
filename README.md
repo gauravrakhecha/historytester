@@ -96,10 +96,15 @@ Local research, backtesting, charting, optimization, results, and dry-run featur
 
 ### Option A — One-Click Windows Launch
 ```bat
-install.bat
-run.bat
+install.bat            :: sets up isolated QuantDesk .venv (Python 3.12 via uv)
+run.bat                :: launches QuantDesk dashboard at http://localhost:8501
 ```
-`install.bat` provisions a Python 3.12 virtual environment (`.venv`) via `uv` and installs pinned dependencies from `requirements.txt`. `run.bat` launches Streamlit at `http://localhost:8501`.
+
+Optional separate **OpenAlgo Sidecar** workflow (keeps OpenAlgo in its own isolated `services\openalgo\.venv` so dependencies never conflict with QuantDesk — or simply run **OpenAlgo Desktop** at `http://127.0.0.1:5000`):
+```bat
+install_openalgo.bat   :: clones & installs OpenAlgo into services\openalgo\.venv
+run_with_openalgo.bat  :: starts OpenAlgo sidecar (if port 5000 is free) + QuantDesk
+```
 
 ### Option B — Manual Setup (Windows / macOS / Linux)
 ```bash

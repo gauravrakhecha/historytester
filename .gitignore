@@ -11,6 +11,7 @@
 *.db-wal
 *.db-shm
 /data/
+/services/
 backups/
 plots/
 
